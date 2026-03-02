@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "CloudTalk Disposition Shortcuts",
+  "version": "1.7.0",
+  "description": "Keyboard shortcuts, time block enforcement, headset mic enforcement, and LinkedIn prospect viewer for CloudTalk Parallel Dialer.",
+  "update_url": "https://throxy-ai.github.io/cloudtalk-extension/updates.xml",
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": ["*://*.linkedin.com/*"],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "linkedin_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://phone.cloudtalk.io/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
