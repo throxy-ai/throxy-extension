@@ -76,7 +76,7 @@
     6: [],
   };
 
-  const CURRENT_VERSION = '1.7.0';
+  const CURRENT_VERSION = '1.8.0';
   const UPDATE_XML_URL = 'https://throxy-ai.github.io/cloudtalk-extension/updates.xml';
   const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
   const CHECK_INTERVAL_MS = 5000;
@@ -88,6 +88,8 @@
   const BATCH_STORAGE_KEY = 'ct-batch-selection';
   const LINKEDIN_PANEL_KEY = 'ct-linkedin-panel';
   const LINKEDIN_USER_KEY = 'ct-linkedin-user-email';
+  const ONEPAGER_PANEL_KEY = 'ct-onepager-panel';
+  const ONEPAGER_BASE_URL = 'https://leadflow.throxy.com/one-pager/';
 
   // ================================================================
   // STATE
@@ -102,6 +104,9 @@
   let micWarningDismissed = false;   // user closed the mic warning
   let currentLinkedInUrl = null;     // tracks current prospect's LinkedIn URL
   let linkedInWhitelist = null;      // null = config not fetched yet; string[] = whitelist loaded
+  let onePagerWhitelist = null;      // null = config not fetched yet; string[] = whitelist loaded
+  let onePagerMap = null;            // null = config not fetched; { clientName: sheetUUID }
+  let currentOnePagerId = null;      // tracks current one-pager sheet UUID
 
   function log(...args) {
     console.log('[CloudTalk Shortcuts]', ...args);
@@ -948,20 +953,144 @@
   }
 
   // ================================================================
-  // LINKEDIN A/B CONFIG (remote whitelist)
+  // ONE-PAGER PROSPECT PANEL (A/B test — shows LeadFlow one-pager)
   // ================================================================
 
-  async function fetchLinkedInConfig() {
+  function isOnePagerPanelEnabled() {
+    return localStorage.getItem(ONEPAGER_PANEL_KEY) === 'enabled';
+  }
+
+  function detectClientName() {
+    if (!onePagerMap) return null;
+    const clientKeys = Object.keys(onePagerMap);
+    if (clientKeys.length === 0) return null;
+
+    const pageText = document.body.innerText || '';
+    const pageTextLower = pageText.toLowerCase();
+
+    // Sort by length descending so "blendhub - dairy" matches before "blendhub"
+    const sorted = clientKeys.slice().sort((a, b) => b.length - a.length);
+    for (const key of sorted) {
+      if (pageTextLower.includes(key)) {
+        return key;
+      }
+    }
+    return null;
+  }
+
+  function tryShowOnePagerPanel() {
+    if (!isOnePagerPanelEnabled() || !IS_TOP_FRAME || !onePagerMap) return;
+
+    const clientKey = detectClientName();
+    const sheetId = clientKey ? onePagerMap[clientKey] : null;
+
+    if (sheetId === currentOnePagerId) {
+      ensureOnePagerCardExists();
+      return;
+    }
+
+    currentOnePagerId = sheetId;
+    replaceOnePagerCardContent(sheetId, clientKey);
+  }
+
+  function ensureOnePagerCardExists() {
+    if (document.getElementById('ct-onepager-card')) return;
+    replaceOnePagerCardContent(currentOnePagerId, null);
+  }
+
+  const OP_SVG_16 = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+  const OP_SVG_32 = OP_SVG_16.replace('width="16" height="16"', 'width="32" height="32"');
+
+  function replaceOnePagerCardContent(sheetId, clientKey) {
+    const oldCard = document.getElementById('ct-onepager-card');
+    if (oldCard) oldCard.remove();
+
+    const container = getActivityContainer();
+    if (!container) return;
+
+    container.setAttribute('data-ct-linkedin-active', '');
+
+    const card = document.createElement('div');
+    card.id = 'ct-onepager-card';
+    card.style.cssText = 'display:flex!important;flex-direction:column;height:100%;overflow:hidden;';
+
+    if (sheetId) {
+      const displayName = clientKey ? clientKey.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : 'One-Pager';
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#7c3aed;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:12px;font-weight:600;flex-shrink:0;letter-spacing:0.3px;">
+          ${OP_SVG_16}
+          <span>One-Pager</span>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.85;font-weight:400;font-size:11px;">${displayName}</span>
+        </div>
+        <div class="ct-li-loading">
+          <div class="ct-li-spinner" style="border-top-color:#7c3aed!important;"></div>
+        </div>
+      `;
+
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'flex:1;width:100%;border:none;background:#f8fafc;';
+      iframe.loading = 'lazy';
+      iframe.src = ONEPAGER_BASE_URL + sheetId;
+      iframe.onload = () => {
+        const loader = card.querySelector('.ct-li-loading');
+        if (loader) loader.remove();
+      };
+      setTimeout(() => {
+        const loader = card.querySelector('.ct-li-loading');
+        if (loader) loader.remove();
+      }, 10000);
+
+      card.appendChild(iframe);
+    } else {
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#7c3aed;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:12px;font-weight:600;flex-shrink:0;letter-spacing:0.3px;">
+          ${OP_SVG_16}
+          <span>One-Pager</span>
+        </div>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:32px;color:#94a3b8;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:13px;text-align:center;">
+          ${OP_SVG_32}
+          <div>No one-pager found for this campaign.<br>
+          The one-pager will appear automatically when a matching client is detected.</div>
+        </div>
+      `;
+    }
+
+    container.appendChild(card);
+    optimizeLayoutForLinkedIn(true);
+  }
+
+  function removeOnePagerPanel() {
+    const card = document.getElementById('ct-onepager-card');
+    if (card) card.remove();
+    const container = getActivityContainer();
+    if (container) container.removeAttribute('data-ct-linkedin-active');
+    currentOnePagerId = null;
+    optimizeLayoutForLinkedIn(false);
+  }
+
+  function startOnePagerPolling() {
+    if (window._ctOnePagerPollActive) return;
+    window._ctOnePagerPollActive = true;
+    setInterval(tryShowOnePagerPanel, LINKEDIN_POLL_MS);
+  }
+
+  // ================================================================
+  // A/B CONFIG (remote whitelist for LinkedIn + One-Pager)
+  // ================================================================
+
+  async function fetchRemoteConfig() {
     if (!IS_TOP_FRAME) return;
     try {
       const resp = await fetch(CONFIG_URL + '?_=' + Date.now(), { cache: 'no-store' });
       if (!resp.ok) return;
       const config = await resp.json();
       linkedInWhitelist = (config.linkedinUsers || []).map(u => u.toLowerCase().trim());
-      log('LinkedIn whitelist loaded:', linkedInWhitelist.length, 'users');
-      applyLinkedInAccess();
+      onePagerWhitelist = (config.onePagerUsers || []).map(u => u.toLowerCase().trim());
+      onePagerMap = config.onePagerMap || {};
+      log('Config loaded: LinkedIn whitelist:', linkedInWhitelist.length, '| One-pager whitelist:', onePagerWhitelist.length, '| Client map:', Object.keys(onePagerMap).length);
+      applyPanelAccess();
     } catch (e) {
-      log('LinkedIn config fetch failed:', e.message);
+      log('Config fetch failed:', e.message);
     }
   }
 
@@ -1008,28 +1137,61 @@
     return null;
   }
 
-  function isUserWhitelisted() {
-    if (!linkedInWhitelist) return null;
-    if (linkedInWhitelist.length === 0) return false;
+  function isEmailInList(list) {
+    if (!list) return null;
+    if (list.length === 0) return false;
     const email = detectAgentEmail();
     if (!email) return null;
-    return linkedInWhitelist.some(u => email === u || email.includes(u) || u.includes(email));
+    return list.some(u => email === u || email.includes(u) || u.includes(email));
   }
 
-  function applyLinkedInAccess() {
-    const whitelisted = isUserWhitelisted();
-    if (whitelisted === true) {
+  function isUserWhitelisted() {
+    return isEmailInList(linkedInWhitelist);
+  }
+
+  function applyPanelAccess() {
+    const isOnePager = isEmailInList(onePagerWhitelist);
+    const isLinkedIn = isUserWhitelisted();
+
+    // One-pager group: enable one-pager, disable LinkedIn
+    if (isOnePager === true) {
+      if (isLinkedInPanelEnabled()) {
+        localStorage.removeItem(LINKEDIN_PANEL_KEY);
+        removeLinkedInPanel();
+      }
+      if (!isOnePagerPanelEnabled()) {
+        localStorage.setItem(ONEPAGER_PANEL_KEY, 'enabled');
+        showNotification('One-pager preview enabled for your account', 'success');
+        tryShowOnePagerPanel();
+        startOnePagerPolling();
+      }
+      return;
+    }
+
+    // LinkedIn group: enable LinkedIn, disable one-pager
+    if (isLinkedIn === true) {
+      if (isOnePagerPanelEnabled()) {
+        localStorage.removeItem(ONEPAGER_PANEL_KEY);
+        removeOnePagerPanel();
+      }
       if (!isLinkedInPanelEnabled()) {
         localStorage.setItem(LINKEDIN_PANEL_KEY, 'enabled');
         showNotification('LinkedIn preview enabled for your account', 'success');
         tryShowLinkedInPanel();
         startLinkedInPolling();
       }
-    } else if (whitelisted === false) {
+      return;
+    }
+
+    // Not in either list: disable both
+    if (isOnePager === false && isLinkedIn === false) {
       if (isLinkedInPanelEnabled()) {
         localStorage.removeItem(LINKEDIN_PANEL_KEY);
         removeLinkedInPanel();
-        showNotification('LinkedIn preview disabled for your account', 'error');
+      }
+      if (isOnePagerPanelEnabled()) {
+        localStorage.removeItem(ONEPAGER_PANEL_KEY);
+        removeOnePagerPanel();
       }
     }
   }
@@ -1105,7 +1267,9 @@
     removeActivitySection();
     expandDispositionsOnce();
     setTimeout(addShortcutBadges, 150);
-    if (isLinkedInPanelEnabled()) {
+    if (isOnePagerPanelEnabled()) {
+      tryShowOnePagerPanel();
+    } else if (isLinkedInPanelEnabled()) {
       tryShowLinkedInPanel();
     }
   }
@@ -1533,10 +1697,13 @@
     setTimeout(checkForUpdate, 5000);
     setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
 
-    setTimeout(fetchLinkedInConfig, 3000);
-    setInterval(fetchLinkedInConfig, CONFIG_FETCH_INTERVAL_MS);
+    setTimeout(fetchRemoteConfig, 3000);
+    setInterval(fetchRemoteConfig, CONFIG_FETCH_INTERVAL_MS);
 
-    if (isLinkedInPanelEnabled()) {
+    if (isOnePagerPanelEnabled()) {
+      setTimeout(tryShowOnePagerPanel, 2000);
+      startOnePagerPolling();
+    } else if (isLinkedInPanelEnabled()) {
       setTimeout(tryShowLinkedInPanel, 2000);
       startLinkedInPolling();
     }
@@ -1561,11 +1728,12 @@
   }
 
   let observerTimeout = null;
-  function isLinkedInMutation(m) {
+  function isPanelMutation(m) {
     const t = m.target;
-    if (t.id === 'ct-linkedin-card' || t.closest?.('#ct-linkedin-card')) return true;
+    if (t.id === 'ct-linkedin-card' || t.id === 'ct-onepager-card') return true;
+    if (t.closest?.('#ct-linkedin-card') || t.closest?.('#ct-onepager-card')) return true;
     if (t.tagName === 'APP-SESSION-ACTIVITY' || t.closest?.('app-session-activity')) {
-      const isOurNode = n => n?.id === 'ct-linkedin-card' || n?.nodeType === 1 && n?.hasAttribute?.('data-ct-linkedin-active');
+      const isOurNode = n => n?.id === 'ct-linkedin-card' || n?.id === 'ct-onepager-card' || n?.nodeType === 1 && n?.hasAttribute?.('data-ct-linkedin-active');
       for (const n of (m.addedNodes || [])) { if (isOurNode(n)) return true; }
       for (const n of (m.removedNodes || [])) { if (isOurNode(n)) return true; }
     }
@@ -1576,7 +1744,7 @@
       const t = m.target;
       if (t.hasAttribute?.('data-ct-badge')) return true;
       if (m.addedNodes?.[0]?.hasAttribute?.('data-ct-badge')) return true;
-      if (isLinkedInMutation(m)) return true;
+      if (isPanelMutation(m)) return true;
       return false;
     });
     if (dominated) return;
@@ -1593,6 +1761,7 @@
   });
 
   document.addEventListener('keydown', handleKeyDown, true);
-  log('Extension ready (schedules + mic warning + LinkedIn panel [' + (isLinkedInPanelEnabled() ? 'ON' : 'OFF') + '])');
+  const panelStatus = isOnePagerPanelEnabled() ? 'One-Pager ON' : isLinkedInPanelEnabled() ? 'LinkedIn ON' : 'panels OFF';
+  log('Extension ready (schedules + mic warning + ' + panelStatus + ')');
 
 })();

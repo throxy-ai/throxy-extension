@@ -13,5 +13,20 @@
       "urlFilter": "||linkedin.com",
       "resourceTypes": ["sub_frame"]
     }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "responseHeaders": [
+        { "header": "X-Frame-Options", "operation": "remove" },
+        { "header": "Content-Security-Policy", "operation": "remove" }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||leadflow.throxy.com",
+      "resourceTypes": ["sub_frame"]
+    }
   }
 ]
