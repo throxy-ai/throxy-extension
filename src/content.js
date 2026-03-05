@@ -76,7 +76,7 @@
     6: [],
   };
 
-  const CURRENT_VERSION = '1.8.0';
+  const CURRENT_VERSION = '1.8.1';
   const UPDATE_XML_URL = 'https://throxy-ai.github.io/cloudtalk-extension/updates.xml';
   const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
   const CHECK_INTERVAL_MS = 5000;
@@ -1102,16 +1102,16 @@
     const stored = getStoredAgentEmail();
     if (stored) return stored;
 
-    const authHints = ['auth', 'token', 'user', 'session', 'login', 'profile', 'account', 'agent'];
+    // Search ALL localStorage and sessionStorage for @throxy.com emails
     const storages = [localStorage, sessionStorage];
     for (const storage of storages) {
       try {
         for (let i = 0; i < storage.length; i++) {
           const key = storage.key(i);
-          if (!authHints.some(h => key.toLowerCase().includes(h))) continue;
           const val = storage.getItem(key);
-          if (!val || val.length > 100000) continue;
+          if (!val || val.length > 200000) continue;
 
+          // Check JWTs
           if (val.includes('.') && val.split('.').length === 3) {
             try {
               const payload = JSON.parse(atob(val.split('.')[1]));
@@ -1120,19 +1120,38 @@
             } catch (_) {}
           }
 
-          if (val.startsWith('{')) {
+          // Check JSON objects (deep: up to 2 levels)
+          if (val.startsWith('{') || val.startsWith('[')) {
             try {
               const obj = JSON.parse(val);
-              for (const v of Object.values(obj)) {
-                if (typeof v === 'string' && v.includes('@')) {
-                  const m = v.match(/[\w.+-]+@[\w.-]+\.\w{2,}/);
-                  if (m) return m[0].toLowerCase();
-                }
-              }
+              const found = findEmailInObj(obj, 2);
+              if (found) return found;
             } catch (_) {}
+          }
+
+          // Check raw string for @throxy.com
+          if (val.includes('@throxy.com')) {
+            const m = val.match(/[\w.+-]+@throxy\.com/i);
+            if (m) return m[0].toLowerCase();
           }
         }
       } catch (_) {}
+    }
+    return null;
+  }
+
+  function findEmailInObj(obj, depth) {
+    if (depth <= 0 || !obj || typeof obj !== 'object') return null;
+    const vals = Array.isArray(obj) ? obj : Object.values(obj);
+    for (const v of vals) {
+      if (typeof v === 'string' && v.includes('@')) {
+        const m = v.match(/[\w.+-]+@[\w.-]+\.\w{2,}/);
+        if (m) return m[0].toLowerCase();
+      }
+      if (typeof v === 'object' && v) {
+        const found = findEmailInObj(v, depth - 1);
+        if (found) return found;
+      }
     }
     return null;
   }
@@ -1149,12 +1168,32 @@
     return isEmailInList(linkedInWhitelist);
   }
 
+  let emailPromptShown = false;
+
   function applyPanelAccess() {
-    const isOnePager = isEmailInList(onePagerWhitelist);
-    const isLinkedIn = isUserWhitelisted();
+    let email = detectAgentEmail();
+
+    // If email not found, prompt once per session
+    if (!email && !emailPromptShown && IS_TOP_FRAME) {
+      emailPromptShown = true;
+      const input = prompt('[CloudTalk Shortcuts] Enter your Throxy email to enable the side panel:');
+      if (input && input.includes('@')) {
+        email = input.toLowerCase().trim();
+        localStorage.setItem(LINKEDIN_USER_KEY, email);
+        log('Email stored:', email);
+      }
+    }
+
+    if (!email) {
+      log('Email not detected — panels cannot be assigned');
+      return;
+    }
+
+    const inOnePager = onePagerWhitelist && onePagerWhitelist.some(u => email === u || email.includes(u) || u.includes(email));
+    const inLinkedIn = linkedInWhitelist && linkedInWhitelist.some(u => email === u || email.includes(u) || u.includes(email));
 
     // One-pager group: enable one-pager, disable LinkedIn
-    if (isOnePager === true) {
+    if (inOnePager) {
       if (isLinkedInPanelEnabled()) {
         localStorage.removeItem(LINKEDIN_PANEL_KEY);
         removeLinkedInPanel();
@@ -1162,14 +1201,14 @@
       if (!isOnePagerPanelEnabled()) {
         localStorage.setItem(ONEPAGER_PANEL_KEY, 'enabled');
         showNotification('One-pager preview enabled for your account', 'success');
-        tryShowOnePagerPanel();
-        startOnePagerPolling();
       }
+      tryShowOnePagerPanel();
+      startOnePagerPolling();
       return;
     }
 
     // LinkedIn group: enable LinkedIn, disable one-pager
-    if (isLinkedIn === true) {
+    if (inLinkedIn) {
       if (isOnePagerPanelEnabled()) {
         localStorage.removeItem(ONEPAGER_PANEL_KEY);
         removeOnePagerPanel();
@@ -1177,22 +1216,20 @@
       if (!isLinkedInPanelEnabled()) {
         localStorage.setItem(LINKEDIN_PANEL_KEY, 'enabled');
         showNotification('LinkedIn preview enabled for your account', 'success');
-        tryShowLinkedInPanel();
-        startLinkedInPolling();
       }
+      tryShowLinkedInPanel();
+      startLinkedInPolling();
       return;
     }
 
     // Not in either list: disable both
-    if (isOnePager === false && isLinkedIn === false) {
-      if (isLinkedInPanelEnabled()) {
-        localStorage.removeItem(LINKEDIN_PANEL_KEY);
-        removeLinkedInPanel();
-      }
-      if (isOnePagerPanelEnabled()) {
-        localStorage.removeItem(ONEPAGER_PANEL_KEY);
-        removeOnePagerPanel();
-      }
+    if (isLinkedInPanelEnabled()) {
+      localStorage.removeItem(LINKEDIN_PANEL_KEY);
+      removeLinkedInPanel();
+    }
+    if (isOnePagerPanelEnabled()) {
+      localStorage.removeItem(ONEPAGER_PANEL_KEY);
+      removeOnePagerPanel();
     }
   }
 
@@ -1617,6 +1654,47 @@
   }
 
   // ================================================================
+  // OUTBOUND NUMBER ENFORCEMENT — lock to "Automatic"
+  // ================================================================
+
+  function enforceAutomaticOutbound() {
+    if (!IS_TOP_FRAME || !isSessionPage()) return;
+
+    const label = document.querySelector('[data-test-id="OutboundMainLabel"]');
+    if (!label) return;
+
+    const current = label.textContent.trim();
+    if (current !== 'Automatic') {
+      log('Outbound not Automatic (' + current + ') — clicking to open selector');
+      const btn = document.querySelector('[data-test-id="OutboundSelectButton"]');
+      if (btn) {
+        btn.click();
+        setTimeout(() => {
+          const options = document.querySelectorAll('[data-test-id="OutboundMainLabel"]');
+          for (const opt of document.querySelectorAll('app-outbound-select button, [class*="outbound"] button, [class*="select-option"]')) {
+            if (opt.textContent.includes('Automatic')) {
+              opt.click();
+              log('Outbound forced to Automatic');
+              return;
+            }
+          }
+          // If we can't find the Automatic option in dropdown, try pressing Escape
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        }, 500);
+      }
+    }
+
+    // Lock the selector: prevent pointer events on the outbound select
+    const selectEl = document.querySelector('app-outbound-select');
+    if (selectEl && !selectEl.hasAttribute('data-ct-locked')) {
+      selectEl.setAttribute('data-ct-locked', 'true');
+      selectEl.style.pointerEvents = 'none';
+      selectEl.style.opacity = '0.7';
+      selectEl.title = 'Outbound number is locked to Automatic by company policy';
+    }
+  }
+
+  // ================================================================
   // INPUT DETECTION
   // ================================================================
 
@@ -1699,6 +1777,10 @@
 
     setTimeout(fetchRemoteConfig, 3000);
     setInterval(fetchRemoteConfig, CONFIG_FETCH_INTERVAL_MS);
+
+    // Enforce Automatic outbound number selection
+    setTimeout(enforceAutomaticOutbound, 2000);
+    setInterval(enforceAutomaticOutbound, CHECK_INTERVAL_MS);
 
     if (isOnePagerPanelEnabled()) {
       setTimeout(tryShowOnePagerPanel, 2000);
