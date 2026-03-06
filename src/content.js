@@ -76,7 +76,7 @@
     6: [],
   };
 
-  const CURRENT_VERSION = '1.8.1';
+  const CURRENT_VERSION = '1.8.2';
   const UPDATE_XML_URL = 'https://throxy-ai.github.io/cloudtalk-extension/updates.xml';
   const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
   const CHECK_INTERVAL_MS = 5000;
@@ -355,6 +355,13 @@
     return false;
   }
 
+  function isCallConnected() {
+    const timer = document.querySelector('.call-timer, [class*="call-timer"], [class*="call-duration"]');
+    if (!timer || timer.offsetParent === null) return false;
+    const text = timer.textContent.trim();
+    return /^\d{1,2}:\d{2}(:\d{2})?$/.test(text);
+  }
+
   // ================================================================
   // MICROPHONE WARNING
   // ================================================================
@@ -520,6 +527,13 @@
         font-size: 13px; text-align: center;
       }
       #ct-linkedin-card .ct-li-empty svg { opacity: 0.4; }
+      #ct-linkedin-card .ct-li-waiting {
+        flex: 1; display: flex; align-items: center; justify-content: center;
+        flex-direction: column; gap: 12px; padding: 32px;
+        color: #94a3b8; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        font-size: 13px; text-align: center;
+      }
+      #ct-linkedin-card .ct-li-waiting svg { opacity: 0.4; }
       #ct-linkedin-card .ct-li-loading {
         flex: 1; display: flex; align-items: center; justify-content: center;
       }
@@ -842,24 +856,32 @@
     return null;
   }
 
+  let linkedInIframeLoaded = false;
+
   function tryShowLinkedInPanel() {
     if (!isLinkedInPanelEnabled() || !IS_TOP_FRAME) return;
 
     const url = findLinkedInUrl();
     const normalizedUrl = url ? url.replace(/\/$/, '') : null;
 
-    if (normalizedUrl === currentLinkedInUrl) {
-      ensureCardExists();
-      return;
+    if (normalizedUrl !== currentLinkedInUrl) {
+      currentLinkedInUrl = normalizedUrl;
+      linkedInIframeLoaded = false;
+      replaceCardContent(normalizedUrl, false);
     }
 
-    currentLinkedInUrl = normalizedUrl;
-    replaceCardContent(normalizedUrl);
+    ensureCardExists();
+
+    if (normalizedUrl && !linkedInIframeLoaded && isCallConnected()) {
+      linkedInIframeLoaded = true;
+      loadLinkedInIframe(normalizedUrl);
+    }
   }
 
   function ensureCardExists() {
     if (document.getElementById('ct-linkedin-card')) return;
-    replaceCardContent(currentLinkedInUrl);
+    linkedInIframeLoaded = false;
+    replaceCardContent(currentLinkedInUrl, false);
   }
 
   function getActivityContainer() {
@@ -869,7 +891,7 @@
   const LI_SVG_16 = '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>';
   const LI_SVG_32 = LI_SVG_16.replace('width="16" height="16"', 'width="32" height="32"');
 
-  function replaceCardContent(url) {
+  function replaceCardContent(url, withIframe) {
     const oldCard = document.getElementById('ct-linkedin-card');
     if (oldCard) oldCard.remove();
 
@@ -889,26 +911,16 @@
           <span>LinkedIn</span>
           <span class="ct-li-url">${slug}</span>
         </div>
-        <div class="ct-li-loading">
-          <div class="ct-li-spinner"></div>
+        <div class="ct-li-waiting" id="ct-li-waiting">
+          ${LI_SVG_32}
+          <div>Waiting for call to connect\u2026<br>
+          <span style="font-size:11px;opacity:0.7">LinkedIn profile will load once the prospect picks up.</span></div>
         </div>
       `;
 
-      const iframe = document.createElement('iframe');
-      iframe.className = 'ct-li-iframe';
-      iframe.sandbox = 'allow-scripts allow-same-origin';
-      iframe.loading = 'lazy';
-      iframe.src = url;
-      iframe.onload = () => {
-        const loader = card.querySelector('.ct-li-loading');
-        if (loader) loader.remove();
-      };
-      setTimeout(() => {
-        const loader = card.querySelector('.ct-li-loading');
-        if (loader) loader.remove();
-      }, 10000);
-
-      card.appendChild(iframe);
+      if (withIframe) {
+        loadLinkedInIframe(url);
+      }
     } else {
       card.innerHTML = `
         <div class="ct-li-header">
@@ -927,12 +939,41 @@
     optimizeLayoutForLinkedIn(true);
   }
 
+  function loadLinkedInIframe(url) {
+    const card = document.getElementById('ct-linkedin-card');
+    if (!card) return;
+
+    const waiting = card.querySelector('#ct-li-waiting');
+    if (waiting) {
+      waiting.innerHTML = '<div class="ct-li-spinner"></div>';
+      waiting.className = 'ct-li-loading';
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.className = 'ct-li-iframe';
+    iframe.sandbox = 'allow-scripts allow-same-origin';
+    iframe.loading = 'lazy';
+    iframe.src = url;
+    iframe.onload = () => {
+      const loader = card.querySelector('.ct-li-loading');
+      if (loader) loader.remove();
+    };
+    setTimeout(() => {
+      const loader = card.querySelector('.ct-li-loading');
+      if (loader) loader.remove();
+    }, 10000);
+
+    card.appendChild(iframe);
+    log('LinkedIn iframe loaded (call connected):', url);
+  }
+
   function removeLinkedInPanel() {
     const card = document.getElementById('ct-linkedin-card');
     if (card) card.remove();
     const container = getActivityContainer();
     if (container) container.removeAttribute('data-ct-linkedin-active');
     currentLinkedInUrl = null;
+    linkedInIframeLoaded = false;
     optimizeLayoutForLinkedIn(false);
   }
 
