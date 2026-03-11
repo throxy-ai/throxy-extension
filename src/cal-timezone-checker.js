@@ -408,23 +408,69 @@
   }
 
   function getSelectedTimezone() {
+    // 1. Combobox on timezone picker page
     const combobox = document.querySelector(".current-timezone input[role='combobox']");
     if (combobox?.value) return combobox.value;
+
+    // 2. data-testid timezone element
     const tzButton = document.querySelector("[data-testid='timezone']");
-    if (tzButton?.textContent) return tzButton.textContent.trim();
+    if (tzButton?.textContent) {
+      const m = tzButton.textContent.match(/[A-Z][a-z]+\/[A-Za-z_\/-]+/);
+      if (m) return m[0];
+    }
+
+    // 3. .current-timezone container
     const tzEl = document.querySelector(".current-timezone");
     if (tzEl?.textContent) {
-      const match = tzEl.textContent.match(/[A-Z][a-z]+\/[A-Za-z_\/-]+/);
-      if (match) return match[0];
+      const m = tzEl.textContent.match(/[A-Z][a-z]+\/[A-Za-z_\/-]+/);
+      if (m) return m[0];
     }
+
+    // 4. Booking details page: timezone shown as text anywhere on the page
+    //    Look for IANA timezone pattern near globe/clock icons or in the sidebar
+    const allElements = document.querySelectorAll("p, span, div, li, button, a");
+    for (const el of allElements) {
+      // Only check leaf-ish elements (avoid matching huge containers)
+      if (el.children.length > 3) continue;
+      const text = el.textContent.trim();
+      // Match IANA timezone pattern like "Europe/London", "America/New_York"
+      const m = text.match(/^([A-Z][a-z]+(?:\/[A-Za-z_]+){1,3})$/);
+      if (m) return m[1];
+    }
+
+    // 5. Last resort: search full page text for timezone pattern
+    const bodyText = document.body?.innerText || "";
+    const tzMatch = bodyText.match(/(?:Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+(?:\/[A-Za-z_]+)*/);
+    if (tzMatch) return tzMatch[0];
+
     return null;
   }
 
   function getPhoneValue() {
-    const phoneInput = document.querySelector(
-      'input[name="phone"], input[type="tel"], .PhoneInputInput'
-    );
-    if (phoneInput?.value) return phoneInput.value;
+    // Try multiple selectors for different cal.com form implementations
+    const selectors = [
+      'input[name="phone"]',
+      'input[type="tel"]',
+      '.PhoneInputInput',
+      'input.PhoneInputInput',
+      '[data-fob-field-name="phone"] input',
+      'input[placeholder*="phone" i]',
+      'input[id*="phone" i]',
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el?.value && el.value.length > 3) return el.value;
+    }
+
+    // Also check for hidden inputs that react-phone-number-input uses
+    // to store the full E.164 value
+    const hiddenInputs = document.querySelectorAll('input[type="hidden"]');
+    for (const input of hiddenInputs) {
+      if (input.value && input.value.startsWith("+") && input.value.length >= 5) {
+        return input.value;
+      }
+    }
+
     return null;
   }
 
