@@ -405,6 +405,57 @@
   function hideBanner() {
     const banner = document.getElementById(BANNER_ID);
     if (banner) banner.style.display = "none";
+    clearHighlights();
+  }
+
+  const HIGHLIGHT_STYLE = "3px solid #dc2626";
+  const HIGHLIGHT_ATTR = "data-throxy-tz-highlight";
+
+  function clearHighlights() {
+    document.querySelectorAll(`[${HIGHLIGHT_ATTR}]`).forEach((el) => {
+      el.style.outline = el.getAttribute(HIGHLIGHT_ATTR);
+      el.removeAttribute(HIGHLIGHT_ATTR);
+    });
+  }
+
+  function highlightElement(el) {
+    if (!el || el.hasAttribute(HIGHLIGHT_ATTR)) return;
+    el.setAttribute(HIGHLIGHT_ATTR, el.style.outline || "");
+    el.style.outline = HIGHLIGHT_STYLE;
+  }
+
+  function highlightPhoneField() {
+    // Highlight the phone input's visible container
+    const phoneInput = document.querySelector(
+      'input[name="phone"], input[type="tel"], .PhoneInputInput'
+    );
+    if (phoneInput) {
+      // Highlight the wrapper div (the styled container with the flag)
+      const container = phoneInput.closest('[data-fob-field-name="phone"]')
+        || phoneInput.closest(".PhoneInput")
+        || phoneInput.parentElement;
+      highlightElement(container || phoneInput);
+    }
+  }
+
+  function highlightTimezoneField() {
+    // Highlight timezone combobox/container
+    const combobox = document.querySelector(".current-timezone");
+    if (combobox) { highlightElement(combobox); return; }
+
+    const tzButton = document.querySelector("[data-testid='timezone']");
+    if (tzButton) { highlightElement(tzButton); return; }
+
+    // On booking details page: find the element showing the IANA timezone text
+    const allElements = document.querySelectorAll("p, span, div, li, button, a");
+    for (const el of allElements) {
+      if (el.children.length > 3) continue;
+      const text = el.textContent.trim();
+      if (/^[A-Z][a-z]+(?:\/[A-Za-z_]+){1,3}$/.test(text)) {
+        highlightElement(el.closest("li") || el.parentElement || el);
+        return;
+      }
+    }
   }
 
   function getSelectedTimezone() {
@@ -507,6 +558,8 @@
       showBanner(
         `⚠ Timezone mismatch: phone ${phoneLabel} but timezone is ${getTzLabel(tz)} (${tz}). Please verify the timezone is correct.`
       );
+      highlightPhoneField();
+      highlightTimezoneField();
     } else {
       hideBanner();
     }
