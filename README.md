@@ -66,10 +66,10 @@ Defined in `src/content.js`. Users pick Morning or Afternoon once per day.
 ## Distribution
 
 - **Extension ID:** `aakeecjanhlnagakgfljfnbdfaolphpe`
-- **Update URL:** `https://throxy-ai.github.io/cloudtalk-extension/updates.xml`
-- **CRX URL:** `https://throxy-ai.github.io/cloudtalk-extension/cloudtalk-shortcuts.crx`
+- **Update URL:** `https://cloudtalk-extension.throxy.ai/updates.xml`
+- **CRX URL:** `https://cloudtalk-extension.throxy.ai/cloudtalk-shortcuts.crx`
 - Deployed via **Google Workspace Admin Console** (force-install)
-- Served from **GitHub Pages** (main branch)
+- Served from **Vercel** (main branch)
 
 ## Key DOM Selectors (CloudTalk)
 

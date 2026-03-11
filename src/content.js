@@ -77,12 +77,12 @@
   };
 
   const CURRENT_VERSION = '1.8.2';
-  const UPDATE_XML_URL = 'https://throxy-ai.github.io/cloudtalk-extension/updates.xml';
+  const UPDATE_XML_URL = 'https://cloudtalk-extension.throxy.ai/updates.xml';
   const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
   const CHECK_INTERVAL_MS = 5000;
   const MIC_CHECK_INTERVAL_MS = 15000;
   const LINKEDIN_POLL_MS = 3000;
-  const CONFIG_URL = 'https://throxy-ai.github.io/cloudtalk-extension/config.json';
+  const CONFIG_URL = 'https://cloudtalk-extension.throxy.ai/config.json';
   const CONFIG_FETCH_INTERVAL_MS = 10 * 60 * 1000;
   const IS_TOP_FRAME = (window.self === window.top);
   const BATCH_STORAGE_KEY = 'ct-batch-selection';
