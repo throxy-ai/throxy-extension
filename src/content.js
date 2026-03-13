@@ -1,5 +1,5 @@
 /**
- * CloudTalk Disposition Shortcuts + Schedule Awareness + Headset Mic Warning
+ * Throxy Extension — Disposition Shortcuts + Schedule Awareness + Headset Mic Warning
  * + LinkedIn Prospect Panel (A/B test)
  *
  * SHORTCUTS:
@@ -76,13 +76,13 @@
     6: [],
   };
 
-  const CURRENT_VERSION = '1.8.7';
-  const UPDATE_XML_URL = 'https://cloudtalk-extension.throxy.ai/updates.xml';
+  const CURRENT_VERSION = '1.9.0';
+  const UPDATE_XML_URL = 'https://throxy-extension.throxy.ai/updates.xml';
   const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
   const CHECK_INTERVAL_MS = 5000;
   const MIC_CHECK_INTERVAL_MS = 15000;
   const LINKEDIN_POLL_MS = 3000;
-  const CONFIG_URL = 'https://cloudtalk-extension.throxy.ai/config.json';
+  const CONFIG_URL = 'https://throxy-extension.throxy.ai/config.json';
   const CONFIG_FETCH_INTERVAL_MS = 10 * 60 * 1000;
   const IS_TOP_FRAME = (window.self === window.top);
   const BATCH_STORAGE_KEY = 'ct-batch-selection';
@@ -109,22 +109,22 @@
   let currentOnePagerId = null;      // tracks current one-pager sheet UUID
 
   function log(...args) {
-    console.log('[CloudTalk Shortcuts]', ...args);
+    console.log('[Throxy Extension]', ...args);
   }
 
   if (IS_TOP_FRAME) {
     const linkedInStatus = isLinkedInPanelEnabled() ? 'ON' : 'OFF (Ctrl+Shift+L to enable)';
     console.log('===========================================');
-    console.log('[CloudTalk Shortcuts] EXTENSION LOADED!');
-    console.log('[CloudTalk Shortcuts] Shortcuts:');
+    console.log('[Throxy Extension] EXTENSION LOADED!');
+    console.log('[Throxy Extension] Shortcuts:');
     console.log('  0            = Hang up');
     console.log('  1-9          = Disposition 1-9');
     console.log('  Q/W/E        = Disposition 10/11/12');
     console.log('  +            = Next Call');
     console.log('  Ctrl+Shift+L = Toggle LinkedIn panel');
-    console.log('[CloudTalk Shortcuts] Schedule warnings: ACTIVE');
-    console.log('[CloudTalk Shortcuts] Headset mic warning: ACTIVE');
-    console.log('[CloudTalk Shortcuts] LinkedIn panel:', linkedInStatus);
+    console.log('[Throxy Extension] Schedule warnings: ACTIVE');
+    console.log('[Throxy Extension] Headset mic warning: ACTIVE');
+    console.log('[Throxy Extension] LinkedIn panel:', linkedInStatus);
     console.log('===========================================');
   }
 
@@ -799,7 +799,7 @@
     if (linkedInWhitelist !== null) {
       let email = detectAgentEmail();
       if (!email) {
-        const input = prompt('Enter your CloudTalk email to verify access:');
+        const input = prompt('Enter your Throxy email to verify access:');
         if (!input) return;
         email = input.toLowerCase().trim();
         localStorage.setItem(LINKEDIN_USER_KEY, email);
@@ -1217,7 +1217,7 @@
     // If email not found, prompt once per session
     if (!email && !emailPromptShown && IS_TOP_FRAME) {
       emailPromptShown = true;
-      const input = prompt('[CloudTalk Shortcuts] Enter your Throxy email to enable the side panel:');
+      const input = prompt('[Throxy Extension] Enter your Throxy email to enable the side panel:');
       if (input && input.includes('@')) {
         email = input.toLowerCase().trim();
         localStorage.setItem(LINKEDIN_USER_KEY, email);

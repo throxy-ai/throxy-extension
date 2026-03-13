@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "CloudTalk Disposition Shortcuts",
-  "version": "1.8.7",
-  "description": "Keyboard shortcuts, time block enforcement, headset mic enforcement, and LinkedIn prospect viewer for CloudTalk Parallel Dialer.",
-  "update_url": "https://cloudtalk-extension.throxy.ai/updates.xml",
+  "name": "Throxy Extension",
+  "version": "1.9.0",
+  "description": "Keyboard shortcuts, time block enforcement, headset mic enforcement, LinkedIn prospect viewer, cal.com timezone/email validation, and more for Throxy SDR operations.",
+  "update_url": "https://throxy-extension.throxy.ai/updates.xml",
+  "incognito": "spanning",
   "permissions": ["declarativeNetRequest"],
-  "host_permissions": ["*://*.linkedin.com/*", "*://leadflow.throxy.com/*"],
+  "host_permissions": ["*://*.linkedin.com/*", "*://leadflow.throxy.com/*", "*://api.bounceban.com/*"],
   "declarative_net_request": {
     "rule_resources": [
       {
@@ -33,7 +34,7 @@
       "matches": [
         "https://*.cal.com/*"
       ],
-      "js": ["cal-notes-blocker.js", "cal-timezone-checker.js"],
+      "js": ["cal-notes-blocker.js", "cal-timezone-checker.js", "cal-email-validator.js"],
       "run_at": "document_idle",
       "all_frames": true
     }

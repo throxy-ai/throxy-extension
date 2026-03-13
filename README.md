@@ -1,13 +1,13 @@
-# CloudTalk Disposition Shortcuts
+# Throxy Extension
 
-Chrome extension for Throxy's CloudTalk Parallel Dialer. Adds keyboard shortcuts, schedule awareness, headset mic warnings, and an inline LinkedIn prospect panel.
+Chrome extension for Throxy SDR operations. Includes CloudTalk keyboard shortcuts, schedule awareness, headset mic warnings, LinkedIn prospect panel, and cal.com booking validations (timezone mismatch, email deliverability, notes blocker).
 
 ## Repo Structure
 
 | Path | Purpose |
 |------|---------|
 | `src/` | **Readable source code** — edit these files when making changes |
-| `cloudtalk-shortcuts.crx` | Packed extension binary served to users via auto-update |
+| `throxy-extension.crx` | Packed extension binary served to users via auto-update |
 | `updates.xml` | Auto-update manifest (Chrome checks this periodically) |
 | `config.json` | LinkedIn A/B test whitelist (fetched at runtime) |
 
@@ -21,9 +21,9 @@ The `src/` directory contains the same files that are packed into the `.crx`. Wh
    - Open `chrome://extensions` in Chrome
    - Enable **Developer mode** (top right)
    - Click **Pack extension** → set "Extension root directory" to the `src/` folder
-   - This produces a new `src.crx` — rename it to `cloudtalk-shortcuts.crx` and move it to the repo root
+   - This produces a new `src.crx` — rename it to `throxy-extension.crx` and move it to the repo root
 4. **Update `updates.xml`** at the repo root — set the `version` attribute to match the new version
-5. **Commit and push** — GitHub Pages serves the CRX and update manifest automatically
+5. **Commit and push** — Vercel serves the CRX and update manifest automatically
 
 Users' Chrome browsers will pick up the new version within ~30 minutes (or on restart).
 
@@ -36,6 +36,9 @@ Users' Chrome browsers will pick up the new version within ~30 minutes (or on re
 | **Headset mic check** | Warns when default mic is Realtek (laptop) instead of headset |
 | **LinkedIn panel** | Inline LinkedIn profile in the activity column (A/B test, whitelist in `config.json`) · Toggle: `Ctrl+Shift+L` |
 | **Auto-update** | Checks `updates.xml` every 30 minutes, shows banner when new version is available |
+| **Cal.com timezone check** | Flags phone ↔ timezone mismatches on cal.com booking pages |
+| **Cal.com email validation** | Verifies email deliverability via BounceBan API; blocks booking for undeliverable emails |
+| **Cal.com notes blocker** | Hides the "Additional notes" field on cal.com booking pages |
 
 ## Time Block Schedules (South Africa time)
 
@@ -66,10 +69,27 @@ Defined in `src/content.js`. Users pick Morning or Afternoon once per day.
 ## Distribution
 
 - **Extension ID:** `aakeecjanhlnagakgfljfnbdfaolphpe`
-- **Update URL:** `https://cloudtalk-extension.throxy.ai/updates.xml`
-- **CRX URL:** `https://cloudtalk-extension.throxy.ai/cloudtalk-shortcuts.crx`
+- **Update URL:** `https://throxy-extension.throxy.ai/updates.xml`
+- **CRX URL:** `https://throxy-extension.throxy.ai/throxy-extension.crx`
 - Deployed via **Google Workspace Admin Console** (force-install)
 - Served from **Vercel** (main branch)
+
+### Enforcing Incognito Mode
+
+The extension has `"incognito": "spanning"` in the manifest so it works in incognito. To **force** it to run in incognito (users can't disable it), set this in the **Google Workspace Admin Console**:
+
+> Devices → Chrome → Apps & extensions → Users & browsers → Throxy Extension → Allow in incognito: **Force**
+
+Or via the `ExtensionSettings` policy:
+```json
+{
+  "aakeecjanhlnagakgfljfnbdfaolphpe": {
+    "installation_mode": "force_installed",
+    "update_url": "https://throxy-extension.throxy.ai/updates.xml",
+    "incognito": "force"
+  }
+}
+```
 
 ## Key DOM Selectors (CloudTalk)
 
