@@ -8,12 +8,15 @@
   const API_KEY = "8380750ddc8eb7c46cfc9baccea21070";
   const API_URL = "https://api.bounceban.com/v1/verify/single";
   const BANNER_ID = "throxy-email-validator-banner";
-  const OVERLAY_ID = "throxy-email-submit-overlay";
   const HIGHLIGHT_ATTR = "data-throxy-email-highlight";
 
   let debounceTimer = null;
   let lastCheckedEmail = "";
+  let lastCheckResult = null; // "deliverable", "risky", "undeliverable", "unknown", or null (not checked)
   let isBlocked = false;
+  let validationInProgress = false;
+
+  console.log("[Throxy Email Validator] Script loaded on", window.location.href);
 
   // ── Find email input ──────────────────────────────────────────────
   function getEmailInput() {
@@ -33,11 +36,10 @@
 
   // ── Find submit button ────────────────────────────────────────────
   function getSubmitButton() {
-    // Cal.com uses a submit button with type="submit" or data-testid
     const selectors = [
       'button[type="submit"]',
       '[data-testid="confirm-book-button"]',
-      'button[data-testid="confirm-button"]',
+      '[data-testid="confirm-button"]',
       'form button:last-of-type',
     ];
     for (const sel of selectors) {
@@ -107,9 +109,6 @@
       btn.style.opacity = "0.5";
       btn.style.pointerEvents = "none";
     }
-
-    // Also intercept form submission as a safety net
-    document.addEventListener("submit", blockFormSubmit, true);
   }
 
   function unblockSubmit() {
@@ -123,15 +122,6 @@
       btn.style.opacity = "";
       btn.style.pointerEvents = "";
       btn.removeAttribute("data-throxy-disabled");
-    }
-
-    document.removeEventListener("submit", blockFormSubmit, true);
-  }
-
-  function blockFormSubmit(e) {
-    if (isBlocked) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
     }
   }
 
@@ -166,12 +156,14 @@
   async function verifyEmail(email) {
     const url = `${API_URL}?api_key=${API_KEY}&email=${encodeURIComponent(email)}`;
     try {
+      console.log("[Throxy Email Validator] Calling API for:", email);
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
+      const data = await resp.json();
+      console.log("[Throxy Email Validator] API response:", data);
+      return data;
     } catch (err) {
       console.warn("[Throxy Email Validator] API error:", err);
-      // On API failure, don't block — let the booking through
       return null;
     }
   }
@@ -187,16 +179,21 @@
       unblockSubmit();
       hideLoading();
       lastCheckedEmail = "";
+      lastCheckResult = null;
       return;
     }
 
     // Don't re-check the same email
     if (email === lastCheckedEmail) return;
+
     lastCheckedEmail = email;
+    lastCheckResult = null; // reset — validation pending
+    validationInProgress = true;
 
     if (emailInput) showLoading(emailInput);
 
     const data = await verifyEmail(email);
+    validationInProgress = false;
     hideLoading();
 
     // If the email changed while we were waiting, discard this result
@@ -204,7 +201,8 @@
     if (currentEmail !== email) return;
 
     if (!data || data.status !== "success") {
-      // API error or still verifying — don't block
+      // API error — don't block, allow through
+      lastCheckResult = "unknown";
       hideBanner();
       clearHighlight();
       unblockSubmit();
@@ -212,9 +210,9 @@
     }
 
     const result = (data.result || "").toLowerCase();
+    lastCheckResult = result;
 
     if (result === "undeliverable") {
-      // BLOCK submission
       showBanner(
         "⛔ This email is undeliverable<br>" +
           '<span style="font-weight:400;font-size:13px;">' +
@@ -240,6 +238,10 @@
   // Keystroke: 5 second debounce (SDRs type slowly, avoid wasting API credits)
   function onEmailInput(e) {
     const email = (e.target.value || "").trim();
+    // If they changed the email, reset the result so submit gate knows it's stale
+    if (email !== lastCheckedEmail) {
+      lastCheckResult = null;
+    }
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => validateEmail(email), 5000);
   }
@@ -260,10 +262,71 @@
     if (email) validateEmail(email);
   }
 
+  // ── Submit gate: intercept form submission if email not yet validated ──
+  function interceptSubmit(e) {
+    const emailInput = getEmailInput();
+    if (!emailInput) return; // no email field on this page
+
+    const email = (emailInput.value || "").trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return; // no valid email, let it through
+
+    // If this email hasn't been checked yet, or check is in progress, BLOCK
+    if (email !== lastCheckedEmail || lastCheckResult === null || validationInProgress) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      console.log("[Throxy Email Validator] Blocked submit — email not yet validated, running check now");
+
+      // Run the validation now, then re-enable if it passes
+      validateEmail(email);
+      return;
+    }
+
+    // If checked and undeliverable, block
+    if (lastCheckResult === "undeliverable") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      console.log("[Throxy Email Validator] Blocked submit — email is undeliverable");
+      return;
+    }
+
+    // Otherwise (deliverable, risky, unknown) — allow through
+  }
+
+  // Intercept click on the confirm button directly
+  function interceptButtonClick(e) {
+    const btn = getSubmitButton();
+    if (!btn || !btn.contains(e.target)) return;
+
+    const emailInput = getEmailInput();
+    if (!emailInput) return;
+
+    const email = (emailInput.value || "").trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+
+    // If email hasn't been validated yet, block the click and trigger validation
+    if (email !== lastCheckedEmail || lastCheckResult === null || validationInProgress) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.log("[Throxy Email Validator] Blocked button click — validating email first");
+      validateEmail(email);
+      return false;
+    }
+
+    if (lastCheckResult === "undeliverable") {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      console.log("[Throxy Email Validator] Blocked button click — undeliverable email");
+      return false;
+    }
+  }
+
   function attachListeners() {
     const emailInput = getEmailInput();
     if (!emailInput || emailInput.hasAttribute("data-throxy-email-bound")) return;
 
+    console.log("[Throxy Email Validator] Found email input, attaching listeners");
     emailInput.setAttribute("data-throxy-email-bound", "1");
     emailInput.addEventListener("input", onEmailInput);
     emailInput.addEventListener("paste", onEmailPaste);
@@ -275,8 +338,11 @@
     if (existing) validateEmail(existing);
   }
 
+  // ── Global submit/click interceptors (capture phase = fires first) ──
+  document.addEventListener("submit", interceptSubmit, true);
+  document.addEventListener("click", interceptButtonClick, true);
+
   // ── Initialization: poll + MutationObserver for SPA navigation ────
-  // Cal.com is a SPA — the email field may not exist on first load
   function init() {
     attachListeners();
   }
