@@ -164,7 +164,7 @@
 
   // ── BounceBan API call ────────────────────────────────────────────
   async function verifyEmail(email) {
-    const url = `${API_URL}?key=${API_KEY}&email=${encodeURIComponent(email)}`;
+    const url = `${API_URL}?api_key=${API_KEY}&email=${encodeURIComponent(email)}`;
     try {
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
