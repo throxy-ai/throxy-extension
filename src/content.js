@@ -76,7 +76,7 @@
     6: [],
   };
 
-  const CURRENT_VERSION = '1.9.0';
+  const CURRENT_VERSION = '1.9.1';
   const UPDATE_XML_URL = 'https://throxy-extension.throxy.ai/updates.xml';
   const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
   const CHECK_INTERVAL_MS = 5000;
