@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Throxy Extension",
-  "version": "1.9.3",
-  "description": "Keyboard shortcuts, time block enforcement, headset mic enforcement, LinkedIn prospect viewer, cal.com timezone/email validation, history cleaner, and more for Throxy SDR operations.",
+  "version": "1.9.4",
+  "description": "Keyboard shortcuts, time block enforcement, headset mic enforcement, LinkedIn prospect viewer, cal.com/cal.eu timezone/email validation, history cleaner, and more for Throxy SDR operations.",
   "update_url": "https://throxy-extension.throxy.ai/updates.xml",
   "incognito": "spanning",
   "permissions": ["declarativeNetRequest", "history", "webNavigation"],
@@ -35,7 +35,8 @@
     },
     {
       "matches": [
-        "https://*.cal.com/*"
+        "https://*.cal.com/*",
+        "https://*.cal.eu/*"
       ],
       "js": ["cal-history-cleaner.js", "cal-notes-blocker.js", "cal-timezone-checker.js", "cal-email-validator.js"],
       "run_at": "document_idle",
