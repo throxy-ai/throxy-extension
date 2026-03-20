@@ -665,10 +665,10 @@
         font-size: 11px; color: #9ca3af; margin-top: 20px; line-height: 1.4;
       }
 
-      /* === Campaign List: hide confusing stats (remaining/scheduled/repeated) === */
-      .ct-campaign-stats-hidden { display: none !important; }
-      .ct-campaign-name-enlarged {
-        font-size: 16px !important;
+      /* === Campaign List: hide stats subtitle, enlarge campaign name === */
+      .cds-list-item__detail { display: none !important; }
+      .cds-list-item__label {
+        font-size: 15px !important;
         font-weight: 600 !important;
         line-height: 1.4 !important;
       }
@@ -1792,36 +1792,10 @@
   }
 
   // ================================================================
-  // CAMPAIGN LIST CLEANUP (hide remaining/scheduled/repeated stats)
-  // ================================================================
-
-  const CAMPAIGN_STATS_RE = /\d+\s+(remaining|scheduled|repeated)/i;
-
-  function hideCampaignStats() {
-    if (!isCampaignPage()) return;
-
-    // Walk all small/subtle text elements that could be the stats subtitle
-    const candidates = document.querySelectorAll('span, p, div, small');
-    for (const el of candidates) {
-      if (el.classList.contains('ct-campaign-stats-hidden')) continue;
-      if (el.children.length > 2) continue; // skip containers
-      const text = el.textContent?.trim() || '';
-      if (CAMPAIGN_STATS_RE.test(text) && text.length < 120) {
-        el.classList.add('ct-campaign-stats-hidden');
-      }
-    }
-  }
-
-  // ================================================================
   // INITIALIZATION
   // ================================================================
 
   addStyles();
-
-  // Hide campaign stats on campaign list page (run early + with delays for SPA)
-  hideCampaignStats();
-  setTimeout(hideCampaignStats, 1000);
-  setTimeout(hideCampaignStats, 3000);
 
   // Load saved shift selection for today
   selectedBatch = loadBatchSelection();
@@ -1906,7 +1880,7 @@
     });
     if (dominated) return;
     if (observerTimeout) clearTimeout(observerTimeout);
-    observerTimeout = setTimeout(() => { updateUI(); hideCampaignStats(); }, 300);
+    observerTimeout = setTimeout(updateUI, 300);
   });
 
   const targetNode = document.querySelector('app-session, app-dialer, main') || document.body;
