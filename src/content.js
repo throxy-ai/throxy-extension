@@ -1703,7 +1703,7 @@
   }
 
   // ================================================================
-  // OUTBOUND NUMBER ENFORCEMENT — lock to "Automatic"
+  // OUTBOUND NUMBER ENFORCEMENT — lock to "Random"
   // ================================================================
 
   function enforceAutomaticOutbound() {
@@ -1713,21 +1713,20 @@
     if (!label) return;
 
     const current = label.textContent.trim();
-    if (current !== 'Automatic') {
-      log('Outbound not Automatic (' + current + ') — clicking to open selector');
+    if (current !== 'Random') {
+      log('Outbound not Random (' + current + ') — clicking to open selector');
       const btn = document.querySelector('[data-test-id="OutboundSelectButton"]');
       if (btn) {
         btn.click();
         setTimeout(() => {
-          const options = document.querySelectorAll('[data-test-id="OutboundMainLabel"]');
           for (const opt of document.querySelectorAll('app-outbound-select button, [class*="outbound"] button, [class*="select-option"]')) {
-            if (opt.textContent.includes('Automatic')) {
+            if (opt.textContent.includes('Random')) {
               opt.click();
-              log('Outbound forced to Automatic');
+              log('Outbound forced to Random');
               return;
             }
           }
-          // If we can't find the Automatic option in dropdown, try pressing Escape
+          // If we can't find the Random option in dropdown, try pressing Escape
           document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         }, 500);
       }
@@ -1739,7 +1738,7 @@
       selectEl.setAttribute('data-ct-locked', 'true');
       selectEl.style.pointerEvents = 'none';
       selectEl.style.opacity = '0.7';
-      selectEl.title = 'Outbound number is locked to Automatic by company policy';
+      selectEl.title = 'Outbound number is locked to Random by company policy';
     }
   }
 
@@ -1827,7 +1826,7 @@
     setTimeout(fetchRemoteConfig, 3000);
     setInterval(fetchRemoteConfig, CONFIG_FETCH_INTERVAL_MS);
 
-    // Enforce Automatic outbound number selection
+    // Enforce Random outbound number selection
     setTimeout(enforceAutomaticOutbound, 2000);
     setInterval(enforceAutomaticOutbound, CHECK_INTERVAL_MS);
 
