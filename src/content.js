@@ -28,7 +28,7 @@
  *   left panels to give LinkedIn more space. Ctrl+Shift+L to toggle.
  */
 
-(function() {
+(() => {
   'use strict';
 
   // ================================================================
@@ -84,7 +84,7 @@
   const LINKEDIN_POLL_MS = 3000;
   const CONFIG_URL = 'https://throxy-extension.throxy.ai/config.json';
   const CONFIG_FETCH_INTERVAL_MS = 10 * 60 * 1000;
-  const IS_TOP_FRAME = (window.self === window.top);
+  const IS_TOP_FRAME = window.self === window.top;
   const BATCH_STORAGE_KEY = 'ct-batch-selection';
   const LINKEDIN_PANEL_KEY = 'ct-linkedin-panel';
   const LINKEDIN_USER_KEY = 'ct-linkedin-user-email';
@@ -94,7 +94,8 @@
   const CAMPAIGN_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
   const CAMPAIGNS_API_BASE = 'https://campaigns.cloudtalk.io/api/v1/campaigns';
   const THROXY_API_BASE = 'https://api.throxy.ai/v1';
-  const THROXY_MACHINE_TOKEN = 'thx_8df17899609d2670ee83362102902b6653b8d4053d205d131903b0d9bba82f33';
+  const THROXY_MACHINE_TOKEN =
+    'thx_8df17899609d2670ee83362102902b6653b8d4053d205d131903b0d9bba82f33';
 
   // ================================================================
   // STATE
@@ -105,20 +106,22 @@
   let isMicBlocked = false;
   let selectedBatch = null; // 'Morning' or 'Afternoon', null = not chosen today
   let breakWarningDismissed = false; // reset when break period changes
-  let lastBreakKey = null;           // tracks which break period was dismissed
-  let micWarningDismissed = false;   // user closed the mic warning
-  let currentLinkedInUrl = null;     // tracks current prospect's LinkedIn URL
-  let linkedInWhitelist = null;      // null = config not fetched yet; string[] = whitelist loaded
-  let onePagerWhitelist = null;      // null = config not fetched yet; string[] = whitelist loaded
-  let onePagerMap = null;            // null = config not fetched; { clientName: sheetUUID }
-  let currentOnePagerId = null;      // tracks current one-pager sheet UUID
+  let lastBreakKey = null; // tracks which break period was dismissed
+  let micWarningDismissed = false; // user closed the mic warning
+  let currentLinkedInUrl = null; // tracks current prospect's LinkedIn URL
+  let linkedInWhitelist = null; // null = config not fetched yet; string[] = whitelist loaded
+  let onePagerWhitelist = null; // null = config not fetched yet; string[] = whitelist loaded
+  let onePagerMap = null; // null = config not fetched; { clientName: sheetUUID }
+  let currentOnePagerId = null; // tracks current one-pager sheet UUID
 
   function log(...args) {
     console.log('[Throxy Extension]', ...args);
   }
 
   if (IS_TOP_FRAME) {
-    const linkedInStatus = isLinkedInPanelEnabled() ? 'ON' : 'OFF (Ctrl+Shift+L to enable)';
+    const linkedInStatus = isLinkedInPanelEnabled()
+      ? 'ON'
+      : 'OFF (Ctrl+Shift+L to enable)';
     console.log('===========================================');
     console.log('[Throxy Extension] EXTENSION LOADED!');
     console.log('[Throxy Extension] Shortcuts:');
@@ -144,9 +147,13 @@
     if (d.getHours() < DAY_START_HOUR) {
       d.setDate(d.getDate() - 1);
     }
-    return d.getFullYear() + '-' +
-      String(d.getMonth() + 1).padStart(2, '0') + '-' +
-      String(d.getDate()).padStart(2, '0');
+    return (
+      d.getFullYear() +
+      '-' +
+      String(d.getMonth() + 1).padStart(2, '0') +
+      '-' +
+      String(d.getDate()).padStart(2, '0')
+    );
   }
 
   function getEffectiveDay() {
@@ -164,7 +171,10 @@
       const raw = localStorage.getItem(BATCH_STORAGE_KEY);
       if (!raw) return null;
       const data = JSON.parse(raw);
-      if (data.date === todayDateStr() && (data.batch === 'Morning' || data.batch === 'Afternoon')) {
+      if (
+        data.date === todayDateStr() &&
+        (data.batch === 'Morning' || data.batch === 'Afternoon')
+      ) {
         return data.batch;
       }
       return null; // expired (different day)
@@ -174,10 +184,13 @@
   }
 
   function saveBatchSelection(batch) {
-    localStorage.setItem(BATCH_STORAGE_KEY, JSON.stringify({
-      date: todayDateStr(),
-      batch: batch,
-    }));
+    localStorage.setItem(
+      BATCH_STORAGE_KEY,
+      JSON.stringify({
+        date: todayDateStr(),
+        batch: batch,
+      })
+    );
   }
 
   function selectBatch(batch) {
@@ -226,12 +239,17 @@
   }
 
   function formatTime(date) {
-    return date.getHours().toString().padStart(2, '0') + ':' +
-           date.getMinutes().toString().padStart(2, '0');
+    return (
+      date.getHours().toString().padStart(2, '0') +
+      ':' +
+      date.getMinutes().toString().padStart(2, '0')
+    );
   }
 
   function formatTimeWithSeconds(date) {
-    return formatTime(date) + ':' + date.getSeconds().toString().padStart(2, '0');
+    return (
+      formatTime(date) + ':' + date.getSeconds().toString().padStart(2, '0')
+    );
   }
 
   function getCurrentBlockStatus() {
@@ -277,7 +295,7 @@
       const start = timeToMinutes(block.start);
       const end = timeToMinutes(block.end);
       if (currentMinutes >= start && currentMinutes <= end) {
-        const isLast = (i === blocks.length - 1);
+        const isLast = i === blocks.length - 1;
         return {
           isBreak: false,
           isLastBlock: isLast,
@@ -342,7 +360,9 @@
       currentBlock: null,
       nextBlock: nextBlock,
       minutesRemaining: 0,
-      minutesToNextBlock: nextBlock ? timeToMinutes(nextBlock.start) - currentMinutes : null,
+      minutesToNextBlock: nextBlock
+        ? timeToMinutes(nextBlock.start) - currentMinutes
+        : null,
       currentTime: formatTime(now),
       currentTimeWithSeconds: formatTimeWithSeconds(now),
       message: message,
@@ -359,13 +379,22 @@
       const el = document.querySelector(sel);
       if (el && el.offsetParent !== null) return true;
     }
-    const timer = document.querySelector('.call-timer, [class*="call-timer"], [class*="call-duration"]');
-    if (timer && timer.offsetParent !== null && timer.textContent.trim().length > 0) return true;
+    const timer = document.querySelector(
+      '.call-timer, [class*="call-timer"], [class*="call-duration"]'
+    );
+    if (
+      timer &&
+      timer.offsetParent !== null &&
+      timer.textContent.trim().length > 0
+    )
+      return true;
     return false;
   }
 
   function isCallConnected() {
-    const timer = document.querySelector('.call-timer, [class*="call-timer"], [class*="call-duration"]');
+    const timer = document.querySelector(
+      '.call-timer, [class*="call-timer"], [class*="call-duration"]'
+    );
     if (!timer || timer.offsetParent === null) return false;
     const text = timer.textContent.trim();
     return /^\d{1,2}:\d{2}(:\d{2})?$/.test(text);
@@ -384,27 +413,33 @@
 
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = devices.filter(d => d.kind === 'audioinput');
+      const audioInputs = devices.filter((d) => d.kind === 'audioinput');
 
       if (audioInputs.length === 0) {
         isMicBlocked = true;
-        if (IS_TOP_FRAME) showMicWarning('No microphone detected. Please connect your headset.');
+        if (IS_TOP_FRAME)
+          showMicWarning(
+            'No microphone detected. Please connect your headset.'
+          );
         return;
       }
 
-      const hasLabels = audioInputs.some(d => d.label.length > 0);
+      const hasLabels = audioInputs.some((d) => d.label.length > 0);
       if (!hasLabels) {
         let permDenied = false;
         try {
-          const permStatus = await navigator.permissions.query({ name: 'microphone' });
-          permDenied = (permStatus.state === 'denied');
+          const permStatus = await navigator.permissions.query({
+            name: 'microphone',
+          });
+          permDenied = permStatus.state === 'denied';
         } catch (_) {}
 
         if (permDenied) {
           isMicBlocked = true;
-          if (IS_TOP_FRAME) showMicWarning(
-            'Microphone permission is BLOCKED in Chrome. Click the lock icon in the address bar \u2192 Site settings \u2192 Allow Microphone.'
-          );
+          if (IS_TOP_FRAME)
+            showMicWarning(
+              'Microphone permission is BLOCKED in Chrome. Click the lock icon in the address bar \u2192 Site settings \u2192 Allow Microphone.'
+            );
           log('Mic blocked \u2014 permission denied in Chrome');
         } else {
           log('Device labels not available yet \u2014 skipping mic check');
@@ -414,33 +449,40 @@
         return;
       }
 
-      const defaultDevice = audioInputs.find(d => d.deviceId === 'default');
-      const commsDevice = audioInputs.find(d => d.deviceId === 'communications');
+      const defaultDevice = audioInputs.find((d) => d.deviceId === 'default');
+      const commsDevice = audioInputs.find(
+        (d) => d.deviceId === 'communications'
+      );
 
-      const isRealtekDefault = defaultDevice &&
-        defaultDevice.label.toLowerCase().includes('realtek');
-      const isRealtekComms = commsDevice &&
-        commsDevice.label.toLowerCase().includes('realtek');
+      const isRealtekDefault =
+        defaultDevice && defaultDevice.label.toLowerCase().includes('realtek');
+      const isRealtekComms =
+        commsDevice && commsDevice.label.toLowerCase().includes('realtek');
 
-      const hasHeadset = audioInputs.some(d => {
-        if (d.deviceId === 'default' || d.deviceId === 'communications') return false;
+      const hasHeadset = audioInputs.some((d) => {
+        if (d.deviceId === 'default' || d.deviceId === 'communications')
+          return false;
         if (d.label === '') return false;
         const lbl = d.label.toLowerCase();
-        return !lbl.includes('realtek') &&
-               !lbl.includes('built-in') &&
-               !lbl.includes('internal');
+        return (
+          !lbl.includes('realtek') &&
+          !lbl.includes('built-in') &&
+          !lbl.includes('internal')
+        );
       });
 
       if (isRealtekDefault || isRealtekComms) {
         isMicBlocked = true;
         if (hasHeadset) {
-          if (IS_TOP_FRAME) showMicWarning(
-            'Your default microphone is Realtek (laptop mic). Switch to your headset in system sound settings.'
-          );
+          if (IS_TOP_FRAME)
+            showMicWarning(
+              'Your default microphone is Realtek (laptop mic). Switch to your headset in system sound settings.'
+            );
         } else {
-          if (IS_TOP_FRAME) showMicWarning(
-            'No headset microphone detected. Please connect your headset before making calls.'
-          );
+          if (IS_TOP_FRAME)
+            showMicWarning(
+              'No headset microphone detected. Please connect your headset before making calls.'
+            );
         }
         log('Mic blocked \u2014 Realtek detected as default');
       } else {
@@ -728,15 +770,15 @@
 
       /* === Request New Lists Button === */
       #ct-request-lists-btn {
-        display: flex; align-items: center; justify-content: center; gap: 8px;
-        width: auto; margin: 16px auto;
-        padding: 14px 24px;
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        margin-left: auto;
+        padding: 6px 16px;
         background: transparent; color: #334fff;
-        border: 2px dashed #334fff; border-radius: 24px;
+        border: 1.5px dashed #334fff; border-radius: 16px;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-        font-size: 14px; font-weight: 600;
+        font-size: 12px; font-weight: 600;
         cursor: pointer; transition: all 0.2s ease;
-        letter-spacing: 0.3px;
+        letter-spacing: 0.3px; white-space: nowrap;
       }
       #ct-request-lists-btn:hover:not(:disabled) {
         background: rgba(51, 79, 255, 0.08);
@@ -854,8 +896,10 @@
   function removeActivitySection() {
     const activityHost = document.querySelector('app-session-activity');
     if (activityHost) {
-      const children = activityHost.querySelectorAll(':scope > *:not(#ct-linkedin-card)');
-      children.forEach(el => el.remove());
+      const children = activityHost.querySelectorAll(
+        ':scope > *:not(#ct-linkedin-card)'
+      );
+      children.forEach((el) => el.remove());
     }
     const selectors = [
       '.activity:not(app-session-activity)',
@@ -864,8 +908,11 @@
       '[class*="activity-feed"]',
     ];
     for (const sel of selectors) {
-      document.querySelectorAll(sel).forEach(el => {
-        if (!el.closest('app-session-activity') && (el.offsetParent !== null || el.parentElement)) {
+      document.querySelectorAll(sel).forEach((el) => {
+        if (
+          !el.closest('app-session-activity') &&
+          (el.offsetParent !== null || el.parentElement)
+        ) {
           el.remove();
         }
       });
@@ -891,7 +938,10 @@
       }
       const whitelisted = isUserWhitelisted();
       if (whitelisted === false) {
-        showNotification('LinkedIn preview is not enabled for your account', 'error');
+        showNotification(
+          'LinkedIn preview is not enabled for your account',
+          'error'
+        );
         return;
       }
     }
@@ -903,7 +953,10 @@
       showNotification('LinkedIn panel disabled', 'success');
     } else {
       localStorage.setItem(LINKEDIN_PANEL_KEY, 'enabled');
-      showNotification('LinkedIn panel enabled — searching for profile...', 'success');
+      showNotification(
+        'LinkedIn panel enabled — searching for profile...',
+        'success'
+      );
       tryShowLinkedInPanel();
       startLinkedInPolling();
     }
@@ -911,7 +964,8 @@
   }
 
   function findLinkedInUrl() {
-    const linkedInPattern = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w%-]+\/?/i;
+    const linkedInPattern =
+      /https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w%-]+\/?/i;
 
     const links = document.querySelectorAll('a[href*="linkedin.com"]');
     for (const link of links) {
@@ -931,7 +985,9 @@
       if (match) return match[0];
     }
 
-    const inputs = document.querySelectorAll('input[value*="linkedin"], [data-value*="linkedin"]');
+    const inputs = document.querySelectorAll(
+      'input[value*="linkedin"], [data-value*="linkedin"]'
+    );
     for (const input of inputs) {
       const val = input.value || input.getAttribute('data-value') || '';
       const match = val.match(linkedInPattern);
@@ -973,8 +1029,12 @@
     return document.querySelector('app-session-activity');
   }
 
-  const LI_SVG_16 = '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>';
-  const LI_SVG_32 = LI_SVG_16.replace('width="16" height="16"', 'width="32" height="32"');
+  const LI_SVG_16 =
+    '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>';
+  const LI_SVG_32 = LI_SVG_16.replace(
+    'width="16" height="16"',
+    'width="32" height="32"'
+  );
 
   function replaceCardContent(url, withIframe) {
     const oldCard = document.getElementById('ct-linkedin-card');
@@ -1124,8 +1184,12 @@
     replaceOnePagerCardContent(currentOnePagerId, null);
   }
 
-  const OP_SVG_16 = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
-  const OP_SVG_32 = OP_SVG_16.replace('width="16" height="16"', 'width="32" height="32"');
+  const OP_SVG_16 =
+    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+  const OP_SVG_32 = OP_SVG_16.replace(
+    'width="16" height="16"',
+    'width="32" height="32"'
+  );
 
   function replaceOnePagerCardContent(sheetId, clientKey) {
     const oldCard = document.getElementById('ct-onepager-card');
@@ -1138,10 +1202,16 @@
 
     const card = document.createElement('div');
     card.id = 'ct-onepager-card';
-    card.style.cssText = 'display:flex!important;flex-direction:column;height:100%;overflow:hidden;';
+    card.style.cssText =
+      'display:flex!important;flex-direction:column;height:100%;overflow:hidden;';
 
     if (sheetId) {
-      const displayName = clientKey ? clientKey.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : 'One-Pager';
+      const displayName = clientKey
+        ? clientKey
+            .split(' ')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ')
+        : 'One-Pager';
       card.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#7c3aed;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:12px;font-weight:600;flex-shrink:0;letter-spacing:0.3px;">
           ${OP_SVG_16}
@@ -1154,7 +1224,8 @@
       `;
 
       const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'flex:1;width:100%;border:none;background:#f8fafc;';
+      iframe.style.cssText =
+        'flex:1;width:100%;border:none;background:#f8fafc;';
       iframe.loading = 'lazy';
       iframe.src = ONEPAGER_BASE_URL + sheetId;
       iframe.onload = () => {
@@ -1207,13 +1278,26 @@
   async function fetchRemoteConfig() {
     if (!IS_TOP_FRAME) return;
     try {
-      const resp = await fetch(CONFIG_URL + '?_=' + Date.now(), { cache: 'no-store' });
+      const resp = await fetch(CONFIG_URL + '?_=' + Date.now(), {
+        cache: 'no-store',
+      });
       if (!resp.ok) return;
       const config = await resp.json();
-      linkedInWhitelist = (config.linkedinUsers || []).map(u => u.toLowerCase().trim());
-      onePagerWhitelist = (config.onePagerUsers || []).map(u => u.toLowerCase().trim());
+      linkedInWhitelist = (config.linkedinUsers || []).map((u) =>
+        u.toLowerCase().trim()
+      );
+      onePagerWhitelist = (config.onePagerUsers || []).map((u) =>
+        u.toLowerCase().trim()
+      );
       onePagerMap = config.onePagerMap || {};
-      log('Config loaded: LinkedIn whitelist:', linkedInWhitelist.length, '| One-pager whitelist:', onePagerWhitelist.length, '| Client map:', Object.keys(onePagerMap).length);
+      log(
+        'Config loaded: LinkedIn whitelist:',
+        linkedInWhitelist.length,
+        '| One-pager whitelist:',
+        onePagerWhitelist.length,
+        '| Client map:',
+        Object.keys(onePagerMap).length
+      );
       applyPanelAccess();
     } catch (e) {
       log('Config fetch failed:', e.message);
@@ -1287,7 +1371,9 @@
     if (list.length === 0) return false;
     const email = detectAgentEmail();
     if (!email) return null;
-    return list.some(u => email === u || email.includes(u) || u.includes(email));
+    return list.some(
+      (u) => email === u || email.includes(u) || u.includes(email)
+    );
   }
 
   function isUserWhitelisted() {
@@ -1302,7 +1388,9 @@
     // If email not found, prompt once per session
     if (!email && !emailPromptShown && IS_TOP_FRAME) {
       emailPromptShown = true;
-      const input = prompt('[Throxy Extension] Enter your Throxy email to enable the side panel:');
+      const input = prompt(
+        '[Throxy Extension] Enter your Throxy email to enable the side panel:'
+      );
       if (input && input.includes('@')) {
         email = input.toLowerCase().trim();
         localStorage.setItem(LINKEDIN_USER_KEY, email);
@@ -1315,8 +1403,16 @@
       return;
     }
 
-    const inOnePager = onePagerWhitelist && onePagerWhitelist.some(u => email === u || email.includes(u) || u.includes(email));
-    const inLinkedIn = linkedInWhitelist && linkedInWhitelist.some(u => email === u || email.includes(u) || u.includes(email));
+    const inOnePager =
+      onePagerWhitelist &&
+      onePagerWhitelist.some(
+        (u) => email === u || email.includes(u) || u.includes(email)
+      );
+    const inLinkedIn =
+      linkedInWhitelist &&
+      linkedInWhitelist.some(
+        (u) => email === u || email.includes(u) || u.includes(email)
+      );
 
     // One-pager group: enable one-pager, disable LinkedIn
     if (inOnePager) {
@@ -1326,7 +1422,10 @@
       }
       if (!isOnePagerPanelEnabled()) {
         localStorage.setItem(ONEPAGER_PANEL_KEY, 'enabled');
-        showNotification('One-pager preview enabled for your account', 'success');
+        showNotification(
+          'One-pager preview enabled for your account',
+          'success'
+        );
       }
       tryShowOnePagerPanel();
       startOnePagerPolling();
@@ -1341,7 +1440,10 @@
       }
       if (!isLinkedInPanelEnabled()) {
         localStorage.setItem(LINKEDIN_PANEL_KEY, 'enabled');
-        showNotification('LinkedIn preview enabled for your account', 'success');
+        showNotification(
+          'LinkedIn preview enabled for your account',
+          'success'
+        );
       }
       tryShowLinkedInPanel();
       startLinkedInPolling();
@@ -1366,7 +1468,9 @@
   }
 
   function expandDispositionsOnce() {
-    const showMoreBtn = document.querySelector('.session-dispositions__show-more button');
+    const showMoreBtn = document.querySelector(
+      '.session-dispositions__show-more button'
+    );
     if (showMoreBtn && showMoreBtn.textContent.includes('Show More')) {
       log('Expanding dispositions...');
       showMoreBtn.click();
@@ -1376,10 +1480,14 @@
   }
 
   function getActionableDispositions() {
-    const allChips = document.querySelectorAll('cds-call-disposition .cds-chip');
+    const allChips = document.querySelectorAll(
+      'cds-call-disposition .cds-chip'
+    );
     const actionable = [];
     for (const chip of allChips) {
-      const isInActivity = chip.closest('.activity, [class*="activity"], .session-activity, app-activity');
+      const isInActivity = chip.closest(
+        '.activity, [class*="activity"], .session-activity, app-activity'
+      );
       const isStatusBadge = chip.closest('.cds-badge, [class*="badge"]');
       if (!isInActivity && !isStatusBadge) actionable.push(chip);
     }
@@ -1392,7 +1500,7 @@
     isProcessing = true;
     lastBadgeUpdate = now;
 
-    document.querySelectorAll('[data-ct-badge]').forEach(el => el.remove());
+    document.querySelectorAll('[data-ct-badge]').forEach((el) => el.remove());
 
     const dispositions = getActionableDispositions();
     dispositions.forEach((chip, index) => {
@@ -1406,7 +1514,9 @@
       chip.appendChild(createBadge(key));
     });
 
-    const hangupBtn = document.querySelector('app-button.hangup, .control-btn.hangup');
+    const hangupBtn = document.querySelector(
+      'app-button.hangup, .control-btn.hangup'
+    );
     if (hangupBtn && !hangupBtn.querySelector('[data-ct-badge]')) {
       const btn = hangupBtn.querySelector('button') || hangupBtn;
       btn.style.display = 'inline-flex';
@@ -1414,7 +1524,9 @@
       btn.appendChild(createBadge('0', 'danger'));
     }
 
-    const nextCallBtn = document.querySelector('[data-test-id="next-call-btn"]');
+    const nextCallBtn = document.querySelector(
+      '[data-test-id="next-call-btn"]'
+    );
     if (nextCallBtn && !nextCallBtn.querySelector('[data-ct-badge]')) {
       const btn = nextCallBtn.querySelector('button') || nextCallBtn;
       btn.style.display = 'inline-flex';
@@ -1454,7 +1566,10 @@
     for (const selector of selectors) {
       const element = document.querySelector(selector);
       if (element) {
-        const btn = element.tagName === 'BUTTON' ? element : element.querySelector('button') || element;
+        const btn =
+          element.tagName === 'BUTTON'
+            ? element
+            : element.querySelector('button') || element;
         btn.click();
         showNotification('Hanging up...', 'success');
         return true;
@@ -1473,7 +1588,10 @@
     for (const selector of selectors) {
       const element = document.querySelector(selector);
       if (element) {
-        const btn = element.tagName === 'BUTTON' ? element : element.querySelector('button') || element;
+        const btn =
+          element.tagName === 'BUTTON'
+            ? element
+            : element.querySelector('button') || element;
         btn.click();
         showNotification('Next Call', 'success');
         return true;
@@ -1502,10 +1620,12 @@
       showNotification(`Disposition ${index + 1} not available`, 'error');
       return false;
     }
-    dispositions.forEach(d => d.classList.remove('ct-disposition-selected'));
+    dispositions.forEach((d) => d.classList.remove('ct-disposition-selected'));
     const disposition = dispositions[index];
     const badge = disposition.querySelector('[data-ct-badge]');
-    const name = badge ? disposition.textContent.replace(badge.textContent, '').trim() : disposition.textContent.trim();
+    const name = badge
+      ? disposition.textContent.replace(badge.textContent, '').trim()
+      : disposition.textContent.trim();
     disposition.click();
     disposition.classList.add('ct-disposition-selected');
     showNotification(`\u2713 ${name}`, 'success');
@@ -1525,9 +1645,11 @@
       font-size: 14px; font-weight: 500; z-index: 100000;
       transition: opacity 0.3s ease;
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      ${type === 'success'
-        ? 'background: #d1faec; color: #0f8960; border: 1px solid #0f8960;'
-        : 'background: #fae6e6; color: #aa322e; border: 1px solid #aa322e;'}
+      ${
+        type === 'success'
+          ? 'background: #d1faec; color: #0f8960; border: 1px solid #0f8960;'
+          : 'background: #fae6e6; color: #aa322e; border: 1px solid #aa322e;'
+      }
     `;
     document.body.appendChild(notification);
     setTimeout(() => {
@@ -1571,7 +1693,9 @@
     } else {
       banner.className = 'ct-status-active';
       const block = status.currentBlock;
-      const lastTag = status.isLastBlock ? ' \u00B7 Free calling after this block' : '';
+      const lastTag = status.isLastBlock
+        ? ' \u00B7 Free calling after this block'
+        : '';
       banner.innerHTML = `<span class="ct-dot"></span> ${shiftTag} ACTIVE \u2014 ${block.start}\u2013${block.end} \u00B7 ${status.minutesRemaining} min remaining \u00B7 ${status.currentTime}${lastTag}`;
     }
   }
@@ -1607,7 +1731,7 @@
     `;
     document.body.appendChild(overlay);
 
-    overlay.querySelectorAll('[data-ct-pick]').forEach(btn => {
+    overlay.querySelectorAll('[data-ct-pick]').forEach((btn) => {
       btn.onclick = () => selectBatch(btn.getAttribute('data-ct-pick'));
     });
   }
@@ -1652,7 +1776,9 @@
       <button class="ct-dismiss-btn" id="ct-break-dismiss">\u2715</button>
       <div class="ct-warn-title">\u26A0\uFE0F Please Exit the Campaign</div>
       <div class="ct-warn-subtitle">
-        Leave and rejoin to refresh your calling list.${nextInfo ? ' \u00B7 ' + nextInfo : ''}
+        Leave and rejoin to refresh your calling list.${
+          nextInfo ? ' \u00B7 ' + nextInfo : ''
+        }
       </div>
     `;
 
@@ -1746,13 +1872,17 @@
     if (!IS_TOP_FRAME) return;
     try {
       const cacheBuster = Math.floor(Date.now() / 60000);
-      const resp = await fetch(UPDATE_XML_URL + '?_=' + cacheBuster, { cache: 'no-store' });
+      const resp = await fetch(UPDATE_XML_URL + '?_=' + cacheBuster, {
+        cache: 'no-store',
+      });
       if (!resp.ok) return;
       const xml = await resp.text();
       const match = xml.match(/version='([^']+)'/);
       if (!match) return;
       const remoteVersion = match[1];
-      log('Version check: local=' + CURRENT_VERSION + ' remote=' + remoteVersion);
+      log(
+        'Version check: local=' + CURRENT_VERSION + ' remote=' + remoteVersion
+      );
       if (compareVersions(remoteVersion, CURRENT_VERSION) > 0) {
         showUpdateBanner(remoteVersion);
       }
@@ -1792,11 +1922,15 @@
     const current = label.textContent.trim();
     if (current !== 'Random') {
       log('Outbound not Random (' + current + ') — clicking to open selector');
-      const btn = document.querySelector('[data-test-id="OutboundSelectButton"]');
+      const btn = document.querySelector(
+        '[data-test-id="OutboundSelectButton"]'
+      );
       if (btn) {
         btn.click();
         setTimeout(() => {
-          for (const opt of document.querySelectorAll('app-outbound-select button, [class*="outbound"] button, [class*="select-option"]')) {
+          for (const opt of document.querySelectorAll(
+            'app-outbound-select button, [class*="outbound"] button, [class*="select-option"]'
+          )) {
             if (opt.textContent.includes('Random')) {
               opt.click();
               log('Outbound forced to Random');
@@ -1804,7 +1938,9 @@
             }
           }
           // If we can't find the Random option in dropdown, try pressing Escape
-          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          document.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+          );
         }, 500);
       }
     }
@@ -1834,16 +1970,24 @@
 
     try {
       // Call refresh-token endpoint on auth subdomain (cookies sent cross-subdomain)
-      const resp = await fetch('https://auth.cloudtalk.io/ct-auth/api/auth/refresh-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include'
-      });
+      const resp = await fetch(
+        'https://auth.cloudtalk.io/ct-auth/api/auth/refresh-token',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        }
+      );
       if (!resp.ok) throw new Error('Refresh token failed: ' + resp.status);
       const json = await resp.json();
 
       // Extract access token from response
-      const token = json.accessToken || json.access_token || json.token || (json.data && (json.data.accessToken || json.data.access_token || json.data.token));
+      const token =
+        json.accessToken ||
+        json.access_token ||
+        json.token ||
+        (json.data &&
+          (json.data.accessToken || json.data.access_token || json.data.token));
       if (!token) throw new Error('No access token in response');
 
       // Cache it and extract expiry
@@ -1902,7 +2046,7 @@
   async function fetchActiveCampaigns(token) {
     const url = CAMPAIGNS_API_BASE + '/active?offsetId=&order=DESC&amount=20';
     const resp = await fetch(url, {
-      headers: { 'Authorization': 'Bearer ' + token }
+      headers: { Authorization: 'Bearer ' + token },
     });
     if (!resp.ok) throw new Error('Failed to fetch campaigns: ' + resp.status);
     const json = await resp.json();
@@ -1911,21 +2055,26 @@
   }
 
   async function checkCampaignHasContacts(campaignId, token) {
-    const assignUrl = CAMPAIGNS_API_BASE + '/' + campaignId + '/contacts/assign?amount=15';
+    const assignUrl =
+      CAMPAIGNS_API_BASE + '/' + campaignId + '/contacts/assign?amount=15';
     const resp = await fetch(assignUrl, {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token }
+      headers: { Authorization: 'Bearer ' + token },
     });
-    if (!resp.ok) throw new Error('Assign failed for campaign ' + campaignId + ': ' + resp.status);
+    if (!resp.ok)
+      throw new Error(
+        'Assign failed for campaign ' + campaignId + ': ' + resp.status
+      );
     const json = await resp.json();
     const contacts = json.data || [];
 
     if (contacts.length > 0) {
       // Has contacts — unassign immediately to release them
-      const unassignUrl = CAMPAIGNS_API_BASE + '/' + campaignId + '/contacts/unassign';
+      const unassignUrl =
+        CAMPAIGNS_API_BASE + '/' + campaignId + '/contacts/unassign';
       await fetch(unassignUrl, {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + token }
+        headers: { Authorization: 'Bearer ' + token },
       });
       return true;
     }
@@ -1946,7 +2095,8 @@
     try {
       const campaigns = await fetchActiveCampaigns(token);
       if (campaigns.length === 0) {
-        log('Campaign check: no active campaigns found');
+        log('Campaign check: no active campaigns — enabling button');
+        enableRequestNewListsButton();
         return;
       }
 
@@ -1956,21 +2106,37 @@
       for (const campaign of campaigns) {
         // Use cache if available
         if (isCampaignCachedWithData(campaign.id)) {
-          log('Campaign check:', campaign.name, '(#' + campaign.id + ') — cached WITH data');
+          log(
+            'Campaign check:',
+            campaign.name,
+            '(#' + campaign.id + ') — cached WITH data'
+          );
           highlightCampaignRow(campaign.name);
           allEmpty = false;
           continue;
         }
         if (isCampaignCachedAsEmpty(campaign.id)) {
-          log('Campaign check:', campaign.name, '(#' + campaign.id + ') — cached EMPTY');
+          log(
+            'Campaign check:',
+            campaign.name,
+            '(#' + campaign.id + ') — cached EMPTY'
+          );
           greyCampaignRow(campaign.name);
           continue;
         }
 
         try {
-          const hasContacts = await checkCampaignHasContacts(campaign.id, token);
+          const hasContacts = await checkCampaignHasContacts(
+            campaign.id,
+            token
+          );
           cacheCampaignResult(campaign.id, hasContacts);
-          log('Campaign check:', campaign.name, '(#' + campaign.id + ') —', hasContacts ? 'HAS contacts' : 'EMPTY');
+          log(
+            'Campaign check:',
+            campaign.name,
+            '(#' + campaign.id + ') —',
+            hasContacts ? 'HAS contacts' : 'EMPTY'
+          );
           if (hasContacts) {
             highlightCampaignRow(campaign.name);
             allEmpty = false;
@@ -1984,7 +2150,7 @@
       }
 
       if (allEmpty) {
-        log('Campaign check: ALL campaigns empty — enabling button');
+        log('Campaign check: ALL campaigns empty — enabling button NOW!!!!');
         enableRequestNewListsButton();
       } else {
         disableRequestNewListsButton();
@@ -1995,12 +2161,19 @@
   }
 
   function findCampaignRow(campaignName) {
-    const decoded = campaignName.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    const decoded = campaignName
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>');
     const labels = document.querySelectorAll('.cds-list-item__label');
     for (const label of labels) {
       const text = label.textContent.trim();
       if (text === campaignName || text === decoded) {
-        return label.closest('cds-list-item') || label.closest('.cds-list-item')?.parentElement || label.parentElement?.parentElement;
+        return (
+          label.closest('cds-list-item') ||
+          label.closest('.cds-list-item')?.parentElement ||
+          label.parentElement?.parentElement
+        );
       }
     }
     return null;
@@ -2028,17 +2201,14 @@
       btn.disabled = true;
       btn.onclick = handleRequestNewLists;
 
-      // Insert inside the virtual scroll content wrapper (campaign list)
-      const list = document.querySelector('.cdk-virtual-scroll-content-wrapper');
-      if (list) {
-        list.appendChild(btn);
+      // Insert into the campaigns header
+      const header = document.querySelector('.cds-header');
+      if (header) {
+        log('Button: inserting into .cds-header');
+        header.appendChild(btn);
       } else {
-        const main = document.querySelector('main, [class*="content"], .page-content');
-        if (main) {
-          main.appendChild(btn);
-        } else {
-          document.body.appendChild(btn);
-        }
+        log('Button: no .cds-header found, fallback to body');
+        document.body.appendChild(btn);
       }
       setButtonState(btn, 'checking');
     }
@@ -2051,7 +2221,8 @@
       case 'checking':
         btn.disabled = true;
         btn.classList.add('ct-btn-checking');
-        btn.innerHTML = '<span class="ct-btn-spinner"></span> Checking campaigns';
+        btn.innerHTML =
+          '<span class="ct-btn-spinner"></span> Checking campaigns';
         break;
       case 'unavailable':
         btn.disabled = true;
@@ -2065,7 +2236,8 @@
       case 'requesting':
         btn.disabled = true;
         btn.classList.add('ct-btn-requesting');
-        btn.innerHTML = '<span class="ct-btn-spinner"></span> Requesting new lists<span class="ct-btn-dot-pulse"><span></span><span></span><span></span></span>';
+        btn.innerHTML =
+          '<span class="ct-btn-spinner"></span> Requesting new lists<span class="ct-btn-dot-pulse"><span></span><span></span><span></span></span>';
         break;
     }
   }
@@ -2086,39 +2258,53 @@
 
     const email = detectAgentEmail();
     if (!email) {
-      showNotification('Something went wrong — please try again later', 'error');
+      showNotification(
+        'Something went wrong — please try again later',
+        'error'
+      );
       if (btn) setButtonState(btn, 'unavailable');
       return;
     }
 
     try {
       const resp = await new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage({
-          action: 'proxyFetch',
-          url: THROXY_API_BASE + '/cpt/request-new-lists',
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + THROXY_MACHINE_TOKEN,
-            'Content-Type': 'application/json'
+        chrome.runtime.sendMessage(
+          {
+            action: 'proxyFetch',
+            url: THROXY_API_BASE + '/cpt/request-new-lists',
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer ' + THROXY_MACHINE_TOKEN,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email: email }),
           },
-          body: JSON.stringify({ agentId: email })
-        }, (response) => {
-          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-          else resolve(response);
-        });
+          (response) => {
+            if (chrome.runtime.lastError)
+              reject(new Error(chrome.runtime.lastError.message));
+            else resolve(response);
+          }
+        );
       });
 
+      log('Request new lists: payload:', { email: email }, 'response:', resp.status, resp.body);
       if (!resp.ok) throw new Error('Request failed: ' + resp.status);
       const json = JSON.parse(resp.body);
       if (!json.success) throw new Error('API returned success=false');
 
       log('Request new lists: success for', email);
       showNotification('New lists requested! Refreshing...', 'success');
-      if (btn) { btn.disabled = true; btn.innerHTML = 'Refreshing...'; }
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = 'Refreshing...';
+      }
       setTimeout(() => window.location.reload(), 1500);
     } catch (e) {
       log('Request new lists: error:', e.message);
-      showNotification('Something went wrong — please try again later', 'error');
+      showNotification(
+        'Something went wrong — please try again later',
+        'error'
+      );
       if (btn) setButtonState(btn, 'unavailable');
     }
   }
@@ -2134,20 +2320,24 @@
     if (isCampaignListPage()) {
       // Button missing from DOM (Angular rebuilt the view) — re-inject
       const btnExists = document.getElementById('ct-request-lists-btn');
-      const wrapperExists = document.querySelector('.cdk-virtual-scroll-content-wrapper');
+      const wrapperExists = document.querySelector('.cds-header');
       if (!btnExists && wrapperExists) {
         ensureRequestNewListsButton();
         if (!_ctCampaignCheckRunning) {
           _ctCampaignCheckRunning = true;
-          checkAllCampaignsEmpty().finally(() => { _ctCampaignCheckRunning = false; });
+          checkAllCampaignsEmpty().finally(() => {
+            _ctCampaignCheckRunning = false;
+          });
         }
       } else if (urlChanged) {
         log('Campaign list page detected — starting campaign check');
-        setTimeout(() => {
+        setTimeout(async () => {
           ensureRequestNewListsButton();
           if (!_ctCampaignCheckRunning) {
             _ctCampaignCheckRunning = true;
-            checkAllCampaignsEmpty().finally(() => { _ctCampaignCheckRunning = false; });
+            checkAllCampaignsEmpty().finally(() => {
+              _ctCampaignCheckRunning = false;
+            });
           }
         }, 2000);
       }
@@ -2175,7 +2365,11 @@
   // ================================================================
 
   function handleKeyDown(event) {
-    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'l') {
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.shiftKey &&
+      event.key.toLowerCase() === 'l'
+    ) {
       event.preventDefault();
       toggleLinkedInPanel();
       return;
@@ -2192,7 +2386,11 @@
       return;
     }
 
-    if (key === '0') { event.preventDefault(); hangUp(); return; }
+    if (key === '0') {
+      event.preventDefault();
+      hangUp();
+      return;
+    }
 
     if (/^[1-9]$/.test(key)) {
       event.preventDefault();
@@ -2200,9 +2398,21 @@
       return;
     }
 
-    if (key.toLowerCase() === 'q') { event.preventDefault(); selectDisposition(9); return; }
-    if (key.toLowerCase() === 'w') { event.preventDefault(); selectDisposition(10); return; }
-    if (key.toLowerCase() === 'e') { event.preventDefault(); selectDisposition(11); return; }
+    if (key.toLowerCase() === 'q') {
+      event.preventDefault();
+      selectDisposition(9);
+      return;
+    }
+    if (key.toLowerCase() === 'w') {
+      event.preventDefault();
+      selectDisposition(10);
+      return;
+    }
+    if (key.toLowerCase() === 'e') {
+      event.preventDefault();
+      selectDisposition(11);
+      return;
+    }
   }
 
   // ================================================================
@@ -2267,7 +2477,7 @@
       };
     }
     try {
-      navigator.permissions.query({ name: 'microphone' }).then(permStatus => {
+      navigator.permissions.query({ name: 'microphone' }).then((permStatus) => {
         permStatus.onchange = () => {
           log('Microphone permission changed to:', permStatus.state);
           checkMicrophone();
@@ -2280,16 +2490,27 @@
   function isPanelMutation(m) {
     const t = m.target;
     if (t.id === 'ct-linkedin-card' || t.id === 'ct-onepager-card') return true;
-    if (t.closest?.('#ct-linkedin-card') || t.closest?.('#ct-onepager-card')) return true;
-    if (t.tagName === 'APP-SESSION-ACTIVITY' || t.closest?.('app-session-activity')) {
-      const isOurNode = n => n?.id === 'ct-linkedin-card' || n?.id === 'ct-onepager-card' || n?.nodeType === 1 && n?.hasAttribute?.('data-ct-linkedin-active');
-      for (const n of (m.addedNodes || [])) { if (isOurNode(n)) return true; }
-      for (const n of (m.removedNodes || [])) { if (isOurNode(n)) return true; }
+    if (t.closest?.('#ct-linkedin-card') || t.closest?.('#ct-onepager-card'))
+      return true;
+    if (
+      t.tagName === 'APP-SESSION-ACTIVITY' ||
+      t.closest?.('app-session-activity')
+    ) {
+      const isOurNode = (n) =>
+        n?.id === 'ct-linkedin-card' ||
+        n?.id === 'ct-onepager-card' ||
+        (n?.nodeType === 1 && n?.hasAttribute?.('data-ct-linkedin-active'));
+      for (const n of m.addedNodes || []) {
+        if (isOurNode(n)) return true;
+      }
+      for (const n of m.removedNodes || []) {
+        if (isOurNode(n)) return true;
+      }
     }
     return false;
   }
   const observer = new MutationObserver((mutations) => {
-    const dominated = mutations.every(m => {
+    const dominated = mutations.every((m) => {
       const t = m.target;
       if (t.hasAttribute?.('data-ct-badge')) return true;
       if (m.addedNodes?.[0]?.hasAttribute?.('data-ct-badge')) return true;
@@ -2301,7 +2522,8 @@
     observerTimeout = setTimeout(updateUI, 300);
   });
 
-  const targetNode = document.querySelector('app-session, app-dialer, main') || document.body;
+  const targetNode =
+    document.querySelector('app-session, app-dialer, main') || document.body;
   observer.observe(targetNode, {
     childList: true,
     subtree: true,
@@ -2310,7 +2532,10 @@
   });
 
   document.addEventListener('keydown', handleKeyDown, true);
-  const panelStatus = isOnePagerPanelEnabled() ? 'One-Pager ON' : isLinkedInPanelEnabled() ? 'LinkedIn ON' : 'panels OFF';
+  const panelStatus = isOnePagerPanelEnabled()
+    ? 'One-Pager ON'
+    : isLinkedInPanelEnabled()
+    ? 'LinkedIn ON'
+    : 'panels OFF';
   log('Extension ready (schedules + mic warning + ' + panelStatus + ')');
-
 })();

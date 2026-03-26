@@ -1,12 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Throxy Extension",
-  "version": "1.9.8",
+  "version": "1.9.9",
   "description": "Keyboard shortcuts, time block enforcement, headset mic enforcement, LinkedIn prospect viewer, cal.com/cal.eu timezone/email validation, history cleaner, and more for Throxy SDR operations.",
   "update_url": "https://throxy-extension.throxy.ai/updates.xml",
   "incognito": "spanning",
   "permissions": ["declarativeNetRequest", "history", "webNavigation"],
-  "host_permissions": ["*://*.linkedin.com/*", "*://leadflow.throxy.com/*", "*://api.bounceban.com/*", "*://campaigns.cloudtalk.io/*", "*://auth.cloudtalk.io/*", "*://api.throxy.ai/*", "http://localhost:3100/*"],
+  "host_permissions": [
+    "*://*.linkedin.com/*",
+    "*://leadflow.throxy.com/*",
+    "*://api.bounceban.com/*",
+    "*://campaigns.cloudtalk.io/*",
+    "*://auth.cloudtalk.io/*",
+    "*://api.throxy.ai/*",
+    "http://localhost:3100/*"
+  ],
   "declarative_net_request": {
     "rule_resources": [
       {
@@ -26,19 +34,19 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://phone.cloudtalk.io/*"
-      ],
+      "matches": ["https://phone.cloudtalk.io/*"],
       "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": true
     },
     {
-      "matches": [
-        "https://*.cal.com/*",
-        "https://*.cal.eu/*"
+      "matches": ["https://*.cal.com/*", "https://*.cal.eu/*"],
+      "js": [
+        "cal-history-cleaner.js",
+        "cal-notes-blocker.js",
+        "cal-timezone-checker.js",
+        "cal-email-validator.js"
       ],
-      "js": ["cal-history-cleaner.js", "cal-notes-blocker.js", "cal-timezone-checker.js", "cal-email-validator.js"],
       "run_at": "document_idle",
       "all_frames": true
     }
