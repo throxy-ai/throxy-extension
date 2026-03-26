@@ -90,6 +90,11 @@
   const LINKEDIN_USER_KEY = 'ct-linkedin-user-email';
   const ONEPAGER_PANEL_KEY = 'ct-onepager-panel';
   const ONEPAGER_BASE_URL = 'https://leadflow.throxy.com/one-pager/';
+  const CAMPAIGN_CACHE_KEY = 'ct-campaign-contacts-cache';
+  const CAMPAIGN_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+  const CAMPAIGNS_API_BASE = 'https://campaigns.cloudtalk.io/api/v1/campaigns';
+  const THROXY_API_BASE = 'https://api.throxy.ai/v1';
+  const THROXY_MACHINE_TOKEN = 'thx_8df17899609d2670ee83362102902b6653b8d4053d205d131903b0d9bba82f33';
 
   // ================================================================
   // STATE
@@ -201,6 +206,10 @@
   function isCampaignPage() {
     const path = window.location.pathname;
     return /^\/p\/dialer\/campaigns(\/\d+)?$/.test(path);
+  }
+
+  function isCampaignListPage() {
+    return window.location.pathname === '/p/dialer/campaigns';
   }
 
   function isBlockablePage() {
@@ -698,6 +707,74 @@
       }
       #ct-mic-warning .ct-mic-icon { font-size: 14px; }
       #ct-mic-warning .ct-dismiss-btn { top: 3px; right: 4px; width: 20px; height: 20px; font-size: 12px; }
+
+      /* === Empty campaign row === */
+      .ct-campaign-empty {
+        opacity: 0.4 !important;
+        pointer-events: none !important;
+      }
+      /* === Campaign with data row === */
+      .ct-campaign-has-data {
+        background: rgba(34, 197, 94, 0.08) !important;
+      }
+
+      /* === Campaign list layout === */
+      .cdk-virtual-scroll-content-wrapper {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 4px !important;
+        align-items: center !important;
+      }
+
+      /* === Request New Lists Button === */
+      #ct-request-lists-btn {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        width: auto; margin: 16px auto;
+        padding: 14px 24px;
+        background: transparent; color: #334fff;
+        border: 2px dashed #334fff; border-radius: 24px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        font-size: 14px; font-weight: 600;
+        cursor: pointer; transition: all 0.2s ease;
+        letter-spacing: 0.3px;
+      }
+      #ct-request-lists-btn:hover:not(:disabled) {
+        background: rgba(51, 79, 255, 0.08);
+        border-color: #1a3be6;
+        transform: translateY(-1px);
+      }
+      #ct-request-lists-btn:active:not(:disabled) { transform: translateY(0); }
+      #ct-request-lists-btn.ct-btn-unavailable {
+        color: #9ca3af; border-color: #d1d5db;
+        cursor: default;
+      }
+      #ct-request-lists-btn.ct-btn-checking {
+        color: #6b7280; border-color: #d1d5db;
+        cursor: wait;
+      }
+      #ct-request-lists-btn.ct-btn-requesting {
+        color: #334fff; border-color: #334fff;
+        cursor: wait;
+      }
+      .ct-btn-spinner {
+        display: inline-block; width: 16px; height: 16px;
+        border: 2px solid currentColor; border-top-color: transparent;
+        border-radius: 50%;
+        animation: ct-btn-spin 0.7s linear infinite;
+      }
+      @keyframes ct-btn-spin { to { transform: rotate(360deg); } }
+      .ct-btn-dot-pulse { display: inline-flex; gap: 4px; }
+      .ct-btn-dot-pulse span {
+        width: 5px; height: 5px; border-radius: 50%;
+        background: currentColor;
+        animation: ct-dot-bounce 1.2s ease-in-out infinite;
+      }
+      .ct-btn-dot-pulse span:nth-child(2) { animation-delay: 0.15s; }
+      .ct-btn-dot-pulse span:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes ct-dot-bounce {
+        0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+        40% { opacity: 1; transform: scale(1.1); }
+      }
 
       /* === Break Warning Banner (prominent, non-blocking, dismissible) === */
       #ct-break-warning {
@@ -1743,6 +1820,344 @@
   }
 
   // ================================================================
+  // CAMPAIGN EMPTY CHECK & REQUEST NEW LISTS
+  // ================================================================
+
+  let _ctCachedAccessToken = null;
+  let _ctAccessTokenExp = 0;
+
+  async function getCloudTalkBearerToken() {
+    // Return cached token if still valid (with 60s buffer)
+    if (_ctCachedAccessToken && Date.now() < _ctAccessTokenExp - 60000) {
+      return _ctCachedAccessToken;
+    }
+
+    try {
+      // Call refresh-token endpoint on auth subdomain (cookies sent cross-subdomain)
+      const resp = await fetch('https://auth.cloudtalk.io/ct-auth/api/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+      if (!resp.ok) throw new Error('Refresh token failed: ' + resp.status);
+      const json = await resp.json();
+
+      // Extract access token from response
+      const token = json.accessToken || json.access_token || json.token || (json.data && (json.data.accessToken || json.data.access_token || json.data.token));
+      if (!token) throw new Error('No access token in response');
+
+      // Cache it and extract expiry
+      _ctCachedAccessToken = token;
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        _ctAccessTokenExp = (payload.exp || 0) * 1000;
+      } catch (_) {
+        _ctAccessTokenExp = Date.now() + 30 * 60 * 1000; // fallback 30min
+      }
+
+      log('Campaign check: obtained access token');
+      return token;
+    } catch (e) {
+      log('Campaign check: failed to get token:', e.message);
+      return null;
+    }
+  }
+
+  function getCampaignCache() {
+    try {
+      const raw = localStorage.getItem(CAMPAIGN_CACHE_KEY);
+      if (!raw) return {};
+      return JSON.parse(raw);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function setCampaignCache(cache) {
+    localStorage.setItem(CAMPAIGN_CACHE_KEY, JSON.stringify(cache));
+  }
+
+  function isCampaignCachedWithData(campaignId) {
+    const cache = getCampaignCache();
+    const entry = cache[String(campaignId)];
+    if (!entry) return false;
+    if (Date.now() - entry.ts > CAMPAIGN_CACHE_TTL_MS) return false;
+    return entry.hasData === true;
+  }
+
+  function cacheCampaignResult(campaignId, hasData) {
+    const cache = getCampaignCache();
+    cache[String(campaignId)] = { hasData: hasData, ts: Date.now() };
+    setCampaignCache(cache);
+  }
+
+  function isCampaignCachedAsEmpty(campaignId) {
+    const cache = getCampaignCache();
+    const entry = cache[String(campaignId)];
+    if (!entry) return false;
+    if (Date.now() - entry.ts > CAMPAIGN_CACHE_TTL_MS) return false;
+    return entry.hasData === false;
+  }
+
+  async function fetchActiveCampaigns(token) {
+    const url = CAMPAIGNS_API_BASE + '/active?offsetId=&order=DESC&amount=20';
+    const resp = await fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!resp.ok) throw new Error('Failed to fetch campaigns: ' + resp.status);
+    const json = await resp.json();
+    if (!json.success) throw new Error('API returned success=false');
+    return json.data || [];
+  }
+
+  async function checkCampaignHasContacts(campaignId, token) {
+    const assignUrl = CAMPAIGNS_API_BASE + '/' + campaignId + '/contacts/assign?amount=15';
+    const resp = await fetch(assignUrl, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!resp.ok) throw new Error('Assign failed for campaign ' + campaignId + ': ' + resp.status);
+    const json = await resp.json();
+    const contacts = json.data || [];
+
+    if (contacts.length > 0) {
+      // Has contacts — unassign immediately to release them
+      const unassignUrl = CAMPAIGNS_API_BASE + '/' + campaignId + '/contacts/unassign';
+      await fetch(unassignUrl, {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      return true;
+    }
+    return false;
+  }
+
+  async function checkAllCampaignsEmpty() {
+    if (!IS_TOP_FRAME || !isCampaignListPage()) return;
+
+    const token = await getCloudTalkBearerToken();
+    if (!token) {
+      log('Campaign check: no bearer token found');
+      return;
+    }
+
+    log('Campaign check: fetching active campaigns...');
+
+    try {
+      const campaigns = await fetchActiveCampaigns(token);
+      if (campaigns.length === 0) {
+        log('Campaign check: no active campaigns found');
+        return;
+      }
+
+      log('Campaign check: checking', campaigns.length, 'campaigns...');
+
+      let allEmpty = true;
+      for (const campaign of campaigns) {
+        // Use cache if available
+        if (isCampaignCachedWithData(campaign.id)) {
+          log('Campaign check:', campaign.name, '(#' + campaign.id + ') — cached WITH data');
+          highlightCampaignRow(campaign.name);
+          allEmpty = false;
+          continue;
+        }
+        if (isCampaignCachedAsEmpty(campaign.id)) {
+          log('Campaign check:', campaign.name, '(#' + campaign.id + ') — cached EMPTY');
+          greyCampaignRow(campaign.name);
+          continue;
+        }
+
+        try {
+          const hasContacts = await checkCampaignHasContacts(campaign.id, token);
+          cacheCampaignResult(campaign.id, hasContacts);
+          log('Campaign check:', campaign.name, '(#' + campaign.id + ') —', hasContacts ? 'HAS contacts' : 'EMPTY');
+          if (hasContacts) {
+            highlightCampaignRow(campaign.name);
+            allEmpty = false;
+          } else {
+            greyCampaignRow(campaign.name);
+          }
+        } catch (e) {
+          log('Campaign check: error checking', campaign.name, ':', e.message);
+          allEmpty = false;
+        }
+      }
+
+      if (allEmpty) {
+        log('Campaign check: ALL campaigns empty — enabling button');
+        enableRequestNewListsButton();
+      } else {
+        disableRequestNewListsButton();
+      }
+    } catch (e) {
+      log('Campaign check: error:', e.message);
+    }
+  }
+
+  function findCampaignRow(campaignName) {
+    const decoded = campaignName.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    const labels = document.querySelectorAll('.cds-list-item__label');
+    for (const label of labels) {
+      const text = label.textContent.trim();
+      if (text === campaignName || text === decoded) {
+        return label.closest('cds-list-item') || label.closest('.cds-list-item')?.parentElement || label.parentElement?.parentElement;
+      }
+    }
+    return null;
+  }
+
+  function highlightCampaignRow(campaignName) {
+    const row = findCampaignRow(campaignName);
+    if (row && !row.classList.contains('ct-campaign-has-data')) {
+      row.classList.add('ct-campaign-has-data');
+    }
+  }
+
+  function greyCampaignRow(campaignName) {
+    const row = findCampaignRow(campaignName);
+    if (row && !row.classList.contains('ct-campaign-empty')) {
+      row.classList.add('ct-campaign-empty');
+    }
+  }
+
+  function ensureRequestNewListsButton() {
+    let btn = document.getElementById('ct-request-lists-btn');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'ct-request-lists-btn';
+      btn.disabled = true;
+      btn.onclick = handleRequestNewLists;
+
+      // Insert inside the virtual scroll content wrapper (campaign list)
+      const list = document.querySelector('.cdk-virtual-scroll-content-wrapper');
+      if (list) {
+        list.appendChild(btn);
+      } else {
+        const main = document.querySelector('main, [class*="content"], .page-content');
+        if (main) {
+          main.appendChild(btn);
+        } else {
+          document.body.appendChild(btn);
+        }
+      }
+      setButtonState(btn, 'checking');
+    }
+    return btn;
+  }
+
+  function setButtonState(btn, state) {
+    btn.className = '';
+    switch (state) {
+      case 'checking':
+        btn.disabled = true;
+        btn.classList.add('ct-btn-checking');
+        btn.innerHTML = '<span class="ct-btn-spinner"></span> Checking campaigns';
+        break;
+      case 'unavailable':
+        btn.disabled = true;
+        btn.classList.add('ct-btn-unavailable');
+        btn.innerHTML = 'Campaigns have contacts — no request needed';
+        break;
+      case 'ready':
+        btn.disabled = false;
+        btn.innerHTML = 'All campaigns empty — Request New Lists';
+        break;
+      case 'requesting':
+        btn.disabled = true;
+        btn.classList.add('ct-btn-requesting');
+        btn.innerHTML = '<span class="ct-btn-spinner"></span> Requesting new lists<span class="ct-btn-dot-pulse"><span></span><span></span><span></span></span>';
+        break;
+    }
+  }
+
+  function enableRequestNewListsButton() {
+    const btn = ensureRequestNewListsButton();
+    setButtonState(btn, 'ready');
+  }
+
+  function disableRequestNewListsButton() {
+    const btn = ensureRequestNewListsButton();
+    setButtonState(btn, 'unavailable');
+  }
+
+  async function handleRequestNewLists() {
+    const btn = document.getElementById('ct-request-lists-btn');
+    if (btn) setButtonState(btn, 'requesting');
+
+    const email = detectAgentEmail();
+    if (!email) {
+      showNotification('Something went wrong — please try again later', 'error');
+      if (btn) setButtonState(btn, 'unavailable');
+      return;
+    }
+
+    try {
+      const resp = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({
+          action: 'proxyFetch',
+          url: THROXY_API_BASE + '/cpt/request-new-lists',
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + THROXY_MACHINE_TOKEN,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ agentId: email })
+        }, (response) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(response);
+        });
+      });
+
+      if (!resp.ok) throw new Error('Request failed: ' + resp.status);
+      const json = JSON.parse(resp.body);
+      if (!json.success) throw new Error('API returned success=false');
+
+      log('Request new lists: success for', email);
+      showNotification('New lists requested! Refreshing...', 'success');
+      if (btn) { btn.disabled = true; btn.innerHTML = 'Refreshing...'; }
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (e) {
+      log('Request new lists: error:', e.message);
+      showNotification('Something went wrong — please try again later', 'error');
+      if (btn) setButtonState(btn, 'unavailable');
+    }
+  }
+
+  // SPA navigation detection for campaign list page
+  let _ctLastCampaignUrl = '';
+  let _ctCampaignCheckRunning = false;
+  function checkCampaignListNavigation() {
+    const currentUrl = window.location.href;
+    const urlChanged = currentUrl !== _ctLastCampaignUrl;
+    _ctLastCampaignUrl = currentUrl;
+
+    if (isCampaignListPage()) {
+      // Button missing from DOM (Angular rebuilt the view) — re-inject
+      const btnExists = document.getElementById('ct-request-lists-btn');
+      const wrapperExists = document.querySelector('.cdk-virtual-scroll-content-wrapper');
+      if (!btnExists && wrapperExists) {
+        ensureRequestNewListsButton();
+        if (!_ctCampaignCheckRunning) {
+          _ctCampaignCheckRunning = true;
+          checkAllCampaignsEmpty().finally(() => { _ctCampaignCheckRunning = false; });
+        }
+      } else if (urlChanged) {
+        log('Campaign list page detected — starting campaign check');
+        setTimeout(() => {
+          ensureRequestNewListsButton();
+          if (!_ctCampaignCheckRunning) {
+            _ctCampaignCheckRunning = true;
+            checkAllCampaignsEmpty().finally(() => { _ctCampaignCheckRunning = false; });
+          }
+        }, 2000);
+      }
+    } else {
+      const btn = document.getElementById('ct-request-lists-btn');
+      if (btn) btn.remove();
+    }
+  }
+
+  // ================================================================
   // INPUT DETECTION
   // ================================================================
 
@@ -1829,6 +2244,10 @@
     // Enforce Random outbound number selection
     setTimeout(enforceAutomaticOutbound, 2000);
     setInterval(enforceAutomaticOutbound, CHECK_INTERVAL_MS);
+
+    // Campaign empty check (SPA navigation detection)
+    checkCampaignListNavigation();
+    setInterval(checkCampaignListNavigation, 3000);
 
     if (isOnePagerPanelEnabled()) {
       setTimeout(tryShowOnePagerPanel, 2000);

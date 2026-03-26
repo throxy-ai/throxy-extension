@@ -49,9 +49,27 @@ chrome.runtime.onInstalled.addListener(() => {
   cleanCalHistory();
 });
 
-// Listen for cleanup requests from content scripts
-chrome.runtime.onMessage.addListener((message) => {
+// Listen for messages from content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.action === "cleanCalHistory") {
     setTimeout(cleanCalHistory, 1000);
+    return;
+  }
+
+  // Proxy fetch requests from content scripts (bypasses CORS via host_permissions)
+  if (message && message.action === "proxyFetch") {
+    fetch(message.url, {
+      method: message.method || "GET",
+      headers: message.headers || {},
+      body: message.body || undefined,
+    })
+      .then(async (resp) => {
+        const text = await resp.text();
+        sendResponse({ ok: resp.ok, status: resp.status, body: text });
+      })
+      .catch((err) => {
+        sendResponse({ ok: false, status: 0, body: err.message });
+      });
+    return true; // keep sendResponse channel open for async
   }
 });
