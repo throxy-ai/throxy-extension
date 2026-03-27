@@ -83,7 +83,7 @@
   const MIC_CHECK_INTERVAL_MS = 15000;
   const LINKEDIN_POLL_MS = 3000;
   const CONFIG_URL = 'https://throxy-extension.throxy.ai/config.json';
-  const CONFIG_FETCH_INTERVAL_MS = 10 * 60 * 1000;
+  const CONFIG_FETCH_INTERVAL_MS = 2 * 60 * 1000;
   const IS_TOP_FRAME = window.self === window.top;
   const BATCH_STORAGE_KEY = 'ct-batch-selection';
   const LINKEDIN_PANEL_KEY = 'ct-linkedin-panel';
@@ -1290,6 +1290,17 @@
         u.toLowerCase().trim()
       );
       onePagerMap = config.onePagerMap || {};
+
+      // Remote cache clear: bump clearCacheVersion in config.json to wipe all SDR caches
+      const remoteCacheVer = config.clearCacheVersion || 0;
+      const localCacheVer = parseInt(localStorage.getItem('ct-clear-cache-version') || '0', 10);
+      if (remoteCacheVer > localCacheVer) {
+        log('Remote cache clear: v' + localCacheVer + ' → v' + remoteCacheVer);
+        localStorage.removeItem(CAMPAIGN_CACHE_KEY);
+        localStorage.removeItem(BATCH_STORAGE_KEY);
+        localStorage.setItem('ct-clear-cache-version', String(remoteCacheVer));
+      }
+
       log(
         'Config loaded: LinkedIn whitelist:',
         linkedInWhitelist.length,
