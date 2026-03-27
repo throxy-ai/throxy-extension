@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Throxy Extension",
-  "version": "1.9.11",
+  "version": "1.9.12",
   "description": "Keyboard shortcuts, time block enforcement, headset mic enforcement, LinkedIn prospect viewer, cal.com/cal.eu timezone/email validation, history cleaner, and more for Throxy SDR operations.",
   "update_url": "https://throxy-extension.throxy.ai/updates.xml",
   "incognito": "spanning",

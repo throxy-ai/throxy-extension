@@ -2204,23 +2204,26 @@
     }
   }
 
-  function ensureRequestNewListsButton() {
+  function ensureRequestNewListsButton(attempt) {
+    attempt = attempt || 1;
     let btn = document.getElementById('ct-request-lists-btn');
     if (!btn) {
+      const header = document.querySelector('.cds-header');
+      if (!header) {
+        if (attempt < 30) {
+          log('Button: .cds-header not found, retry ' + attempt + '/30');
+          setTimeout(() => ensureRequestNewListsButton(attempt + 1), 1000);
+        } else {
+          log('Button: .cds-header not found after 30 attempts, giving up');
+        }
+        return null;
+      }
       btn = document.createElement('button');
       btn.id = 'ct-request-lists-btn';
       btn.disabled = true;
       btn.onclick = handleRequestNewLists;
-
-      // Insert into the campaigns header
-      const header = document.querySelector('.cds-header');
-      if (header) {
-        log('Button: inserting into .cds-header');
-        header.appendChild(btn);
-      } else {
-        log('Button: no .cds-header found, fallback to body');
-        document.body.appendChild(btn);
-      }
+      log('Button: inserting into .cds-header (attempt ' + attempt + ')');
+      header.appendChild(btn);
       setButtonState(btn, 'checking');
     }
     return btn;
@@ -2255,12 +2258,12 @@
 
   function enableRequestNewListsButton() {
     const btn = ensureRequestNewListsButton();
-    setButtonState(btn, 'ready');
+    if (btn) setButtonState(btn, 'ready');
   }
 
   function disableRequestNewListsButton() {
     const btn = ensureRequestNewListsButton();
-    setButtonState(btn, 'unavailable');
+    if (btn) setButtonState(btn, 'unavailable');
   }
 
   async function handleRequestNewLists() {
