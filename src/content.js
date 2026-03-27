@@ -750,6 +750,12 @@
       #ct-mic-warning .ct-mic-icon { font-size: 14px; }
       #ct-mic-warning .ct-dismiss-btn { top: 3px; right: 4px; width: 20px; height: 20px; font-size: 12px; }
 
+      /* === Block all campaign clicks while checks are running === */
+      .ct-campaigns-checking cds-list-item,
+      .ct-campaigns-checking .cds-list-item {
+        pointer-events: none !important;
+        opacity: 0.6 !important;
+      }
       /* === Empty campaign row === */
       .ct-campaign-empty {
         opacity: 0.4 !important;
@@ -757,6 +763,8 @@
       }
       /* === Campaign with data row === */
       .ct-campaign-has-data {
+        pointer-events: auto !important;
+        opacity: 1 !important;
         background: rgba(34, 197, 94, 0.08) !important;
       }
 
@@ -817,6 +825,24 @@
         0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
         40% { opacity: 1; transform: scale(1.1); }
       }
+
+      /* === Change Email Button (bottom-left) === */
+      #ct-change-email-btn {
+        position: fixed; bottom: 12px; left: 12px; z-index: 99997;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 5px 12px;
+        background: rgba(255,255,255,0.9); color: #6b7280;
+        border: 1px solid #e5e7eb; border-radius: 12px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        font-size: 11px; font-weight: 500;
+        cursor: pointer; transition: all 0.2s ease;
+        backdrop-filter: blur(8px);
+      }
+      #ct-change-email-btn:hover {
+        color: #334fff; border-color: #334fff;
+        background: rgba(51, 79, 255, 0.06);
+      }
+      #ct-change-email-btn .ct-email-icon { font-size: 13px; }
 
       /* === Break Warning Banner (prominent, non-blocking, dismissible) === */
       #ct-break-warning {
@@ -1293,7 +1319,10 @@
 
       // Remote cache clear: bump clearCacheVersion in config.json to wipe all SDR caches
       const remoteCacheVer = config.clearCacheVersion || 0;
-      const localCacheVer = parseInt(localStorage.getItem('ct-clear-cache-version') || '0', 10);
+      const localCacheVer = parseInt(
+        localStorage.getItem('ct-clear-cache-version') || '0',
+        10
+      );
       if (remoteCacheVer > localCacheVer) {
         log('Remote cache clear: v' + localCacheVer + ' → v' + remoteCacheVer);
         localStorage.removeItem(CAMPAIGN_CACHE_KEY);
@@ -2101,6 +2130,12 @@
       return;
     }
 
+    // Block all campaign clicks while checks run
+    const listContainer =
+      document.querySelector('.cds-list') ||
+      document.querySelector('cds-list-item')?.parentElement;
+    if (listContainer) listContainer.classList.add('ct-campaigns-checking');
+
     log('Campaign check: fetching active campaigns...');
 
     try {
@@ -2132,6 +2167,21 @@
             campaign.name,
             '(#' + campaign.id + ') — cached EMPTY'
           );
+          greyCampaignRow(campaign.name);
+          continue;
+        }
+
+        // Skip expensive assign/unassign fetch when stats show zero contacts
+        const scheduled = campaign.totalScheduledCalls || 0;
+        const dropped = campaign.totalDroppedToRepeatContacts || 0;
+        const fresh = campaign.totalFreshContacts || 0;
+        if (scheduled === 0 && dropped === 0 && fresh === 0) {
+          log(
+            'Campaign check:',
+            campaign.name,
+            '(#' + campaign.id + ') — stats all zero, auto-EMPTY'
+          );
+          cacheCampaignResult(campaign.id, false);
           greyCampaignRow(campaign.name);
           continue;
         }
@@ -2168,6 +2218,10 @@
       }
     } catch (e) {
       log('Campaign check: error:', e.message);
+    } finally {
+      // Unblock campaign clicks now that checks are done
+      if (listContainer)
+        listContainer.classList.remove('ct-campaigns-checking');
     }
   }
 
@@ -2207,26 +2261,30 @@
   function ensureRequestNewListsButton(attempt) {
     attempt = attempt || 1;
     let btn = document.getElementById('ct-request-lists-btn');
-    if (!btn) {
-      const header = document.querySelector('.cds-header');
-      if (!header) {
-        if (attempt < 30) {
-          log('Button: .cds-header not found, retry ' + attempt + '/30');
-          setTimeout(() => ensureRequestNewListsButton(attempt + 1), 1000);
-        } else {
-          log('Button: .cds-header not found after 30 attempts, giving up');
-        }
-        return null;
+    if (btn) return Promise.resolve(btn);
+
+    const header = document.querySelector('.cds-header');
+    if (!header) {
+      if (attempt < 30) {
+        log('Button: .cds-header not found, retry ' + attempt + '/30');
+        return new Promise((resolve) => {
+          setTimeout(
+            () => resolve(ensureRequestNewListsButton(attempt + 1)),
+            1000
+          );
+        });
       }
-      btn = document.createElement('button');
-      btn.id = 'ct-request-lists-btn';
-      btn.disabled = true;
-      btn.onclick = handleRequestNewLists;
-      log('Button: inserting into .cds-header (attempt ' + attempt + ')');
-      header.appendChild(btn);
-      setButtonState(btn, 'checking');
+      log('Button: .cds-header not found after 30 attempts, giving up');
+      return Promise.resolve(null);
     }
-    return btn;
+    btn = document.createElement('button');
+    btn.id = 'ct-request-lists-btn';
+    btn.disabled = true;
+    btn.onclick = handleRequestNewLists;
+    log('Button: inserting into .cds-header (attempt ' + attempt + ')');
+    header.appendChild(btn);
+    setButtonState(btn, 'checking');
+    return Promise.resolve(btn);
   }
 
   function setButtonState(btn, state) {
@@ -2256,13 +2314,13 @@
     }
   }
 
-  function enableRequestNewListsButton() {
-    const btn = ensureRequestNewListsButton();
+  async function enableRequestNewListsButton() {
+    const btn = await ensureRequestNewListsButton();
     if (btn) setButtonState(btn, 'ready');
   }
 
-  function disableRequestNewListsButton() {
-    const btn = ensureRequestNewListsButton();
+  async function disableRequestNewListsButton() {
+    const btn = await ensureRequestNewListsButton();
     if (btn) setButtonState(btn, 'unavailable');
   }
 
@@ -2301,7 +2359,13 @@
         );
       });
 
-      log('Request new lists: payload:', { email: email }, 'response:', resp.status, resp.body);
+      log(
+        'Request new lists: payload:',
+        { email: email },
+        'response:',
+        resp.status,
+        resp.body
+      );
       if (!resp.ok) throw new Error('Request failed: ' + resp.status);
       const json = JSON.parse(resp.body);
       if (!json.success) throw new Error('API returned success=false');
@@ -2323,6 +2387,34 @@
     }
   }
 
+  function ensureChangeEmailButton() {
+    if (document.getElementById('ct-change-email-btn')) return;
+    const btn = document.createElement('button');
+    btn.id = 'ct-change-email-btn';
+    const email = detectAgentEmail();
+    btn.innerHTML =
+      '<span class="ct-email-icon">\u2709\uFE0F</span>' +
+      (email || 'No email set');
+    btn.onclick = () => {
+      const current = detectAgentEmail() || '';
+      const input = prompt('Enter your Throxy email:', current);
+      if (input === null) return; // cancelled
+      const trimmed = input.trim().toLowerCase();
+      if (!trimmed) {
+        localStorage.removeItem(LINKEDIN_USER_KEY);
+        btn.innerHTML =
+          '<span class="ct-email-icon">\u2709\uFE0F</span>No email set';
+        log('Email cleared');
+        return;
+      }
+      localStorage.setItem(LINKEDIN_USER_KEY, trimmed);
+      btn.innerHTML =
+        '<span class="ct-email-icon">\u2709\uFE0F</span>' + trimmed;
+      log('Email changed to:', trimmed);
+    };
+    document.body.appendChild(btn);
+  }
+
   // SPA navigation detection for campaign list page
   let _ctLastCampaignUrl = '';
   let _ctCampaignCheckRunning = false;
@@ -2332,32 +2424,37 @@
     _ctLastCampaignUrl = currentUrl;
 
     if (isCampaignListPage()) {
+      ensureChangeEmailButton();
       // Button missing from DOM (Angular rebuilt the view) — re-inject
       const btnExists = document.getElementById('ct-request-lists-btn');
       const wrapperExists = document.querySelector('.cds-header');
       if (!btnExists && wrapperExists) {
-        ensureRequestNewListsButton();
         if (!_ctCampaignCheckRunning) {
           _ctCampaignCheckRunning = true;
-          checkAllCampaignsEmpty().finally(() => {
-            _ctCampaignCheckRunning = false;
-          });
+          ensureRequestNewListsButton().then(() =>
+            checkAllCampaignsEmpty().finally(() => {
+              _ctCampaignCheckRunning = false;
+            })
+          );
         }
       } else if (urlChanged) {
         log('Campaign list page detected — starting campaign check');
-        setTimeout(async () => {
-          ensureRequestNewListsButton();
+        setTimeout(() => {
           if (!_ctCampaignCheckRunning) {
             _ctCampaignCheckRunning = true;
-            checkAllCampaignsEmpty().finally(() => {
-              _ctCampaignCheckRunning = false;
-            });
+            ensureRequestNewListsButton().then(() =>
+              checkAllCampaignsEmpty().finally(() => {
+                _ctCampaignCheckRunning = false;
+              })
+            );
           }
         }, 2000);
       }
     } else {
       const btn = document.getElementById('ct-request-lists-btn');
       if (btn) btn.remove();
+      const emailBtn = document.getElementById('ct-change-email-btn');
+      if (emailBtn) emailBtn.remove();
     }
   }
 
