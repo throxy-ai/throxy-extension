@@ -980,6 +980,7 @@
     const out = [];
     let inList = false;
     let inBlockquote = false;
+    let inTable = false;
 
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i];
@@ -988,6 +989,7 @@
       if (/^---+\s*$/.test(line)) {
         if (inList) { out.push('</ul>'); inList = false; }
         if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        if (inTable) { out.push('</tbody></table>'); inTable = false; }
         out.push('<hr>');
         continue;
       }
@@ -996,18 +998,21 @@
       if (/^### (.+)/.test(line)) {
         if (inList) { out.push('</ul>'); inList = false; }
         if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        if (inTable) { out.push('</tbody></table>'); inTable = false; }
         out.push('<h3>' + inlineFormat(line.replace(/^### /, '')) + '</h3>');
         continue;
       }
       if (/^## (.+)/.test(line)) {
         if (inList) { out.push('</ul>'); inList = false; }
         if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        if (inTable) { out.push('</tbody></table>'); inTable = false; }
         out.push('<h2>' + inlineFormat(line.replace(/^## /, '')) + '</h2>');
         continue;
       }
       if (/^# (.+)/.test(line)) {
         if (inList) { out.push('</ul>'); inList = false; }
         if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        if (inTable) { out.push('</tbody></table>'); inTable = false; }
         out.push('<h1>' + inlineFormat(line.replace(/^# /, '')) + '</h1>');
         continue;
       }
@@ -1015,12 +1020,40 @@
       // Blockquote
       if (/^>\s?(.*)/.test(line)) {
         if (inList) { out.push('</ul>'); inList = false; }
+        if (inTable) { out.push('</tbody></table>'); inTable = false; }
         if (!inBlockquote) { out.push('<blockquote>'); inBlockquote = true; }
         out.push(inlineFormat(line.replace(/^>\s?/, '')) + '<br>');
         continue;
       } else if (inBlockquote) {
         out.push('</blockquote>');
         inBlockquote = false;
+      }
+
+      // Table rows
+      if (/^\|(.+)\|$/.test(line)) {
+        if (inList) { out.push('</ul>'); inList = false; }
+        if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        
+        const nextLine = i + 1 < lines.length ? lines[i + 1] : '';
+        const isSeparator = /^\|[\s\-:]+\|$/.test(nextLine);
+        
+        if (!inTable && isSeparator) {
+          out.push('<table>');
+          out.push('<thead>');
+          const cells = line.split('|').slice(1, -1).map(c => c.trim());
+          out.push('<tr>' + cells.map(c => '<th>' + inlineFormat(c) + '</th>').join('') + '</tr>');
+          out.push('</thead>');
+          out.push('<tbody>');
+          inTable = true;
+          i++;
+        } else if (inTable) {
+          const cells = line.split('|').slice(1, -1).map(c => c.trim());
+          out.push('<tr>' + cells.map(c => '<td>' + inlineFormat(c) + '</td>').join('') + '</tr>');
+        }
+        continue;
+      } else if (inTable) {
+        out.push('</tbody></table>');
+        inTable = false;
       }
 
       // List items (-, •, *)
@@ -1044,6 +1077,7 @@
 
     if (inList) out.push('</ul>');
     if (inBlockquote) out.push('</blockquote>');
+    if (inTable) out.push('</tbody></table>');
 
     return out.join('\n');
   }
@@ -1122,6 +1156,7 @@
           <div class="ct-tt-spinner"></div>
         </div>
       `;
+      card.dataset.filename = filename;
 
       container.appendChild(card);
       optimizeLayout(true);
@@ -1129,7 +1164,7 @@
       // Fetch and render markdown
       fetchTalkTrack(filename).then((html) => {
         const currentCard = document.getElementById('ct-talktrack-card');
-        if (!currentCard) return;
+        if (!currentCard || currentCard.dataset.filename !== filename) return;
         const loader = currentCard.querySelector('.ct-tt-loading');
         if (html) {
           const body = document.createElement('div');
@@ -1160,15 +1195,6 @@
       container.appendChild(card);
       optimizeLayout(true);
     }
-  }
-
-  function removeTalkTrackPanel() {
-    const card = document.getElementById('ct-talktrack-card');
-    if (card) card.remove();
-    const container = getActivityContainer();
-    if (container) container.removeAttribute('data-ct-talktrack-active');
-    currentTalkTrackKey = null;
-    optimizeLayout(false);
   }
 
   function optimizeLayout(enable) {
@@ -2236,15 +2262,14 @@
   let observerTimeout = null;
   function isPanelMutation(m) {
     const t = m.target;
-    if (t.id === 'ct-talktrack-card' || t.id === 'ct-talktrack-card') return true;
-    if (t.closest?.('#ct-talktrack-card') || t.closest?.('#ct-talktrack-card'))
+    if (t.id === 'ct-talktrack-card') return true;
+    if (t.closest?.('#ct-talktrack-card'))
       return true;
     if (
       t.tagName === 'APP-SESSION-ACTIVITY' ||
       t.closest?.('app-session-activity')
     ) {
       const isOurNode = (n) =>
-        n?.id === 'ct-talktrack-card' ||
         n?.id === 'ct-talktrack-card' ||
         (n?.nodeType === 1 && n?.hasAttribute?.('data-ct-talktrack-active'));
       for (const n of m.addedNodes || []) {
