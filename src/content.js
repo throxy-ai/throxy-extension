@@ -1,6 +1,6 @@
 /**
  * Throxy Extension — Disposition Shortcuts + Schedule Awareness + Headset Mic Warning
- * + LinkedIn Prospect Panel (A/B test)
+ * + TalkTrack Panel
  *
  * SHORTCUTS:
  *   0:            Hang up the call
@@ -9,7 +9,6 @@
  *   W:            Select disposition 11
  *   E:            Select disposition 12
  *   +:            Next Call (Plus key)
- *   Ctrl+Shift+L: Toggle LinkedIn prospect panel (A/B test)
  *
  * SCHEDULE AWARENESS (non-blocking):
  *   Shows status banner with current block info.
@@ -20,16 +19,23 @@
  *   Detects if the default microphone is Realtek (laptop built-in).
  *   Shows a persistent warning (non-blocking).
  *
- * LINKEDIN PANEL (A/B test with remote whitelist):
- *   Embeds the prospect's LinkedIn profile inline in the activity column
- *   via iframe. declarativeNetRequest strips framing headers. Access is
- *   controlled by a remote config.json whitelist on GitHub Pages.
- *   Links inside the iframe are blocked (sandbox). Layout auto-compresses
- *   left panels to give LinkedIn more space. Ctrl+Shift+L to toggle.
+ * TALKTRACK PANEL:
+ *   Displays a rendered talk track in the activity column based on the
+ *   current campaign/list name. Talk tracks are markdown files hosted on
+ *   throxy-extension.throxy.ai/talk-tracks/. Client-to-file mapping is
+ *   managed in config.json (talkTrackMap). Layout auto-compresses left
+ *   panels to give the talk track more space.
  */
 
 (() => {
   'use strict';
+
+  // One-time localStorage clear (v1.9.12) — requested for Capetown OU
+  if (!localStorage.getItem('ct-storage-cleared-v1.10.0')) {
+    localStorage.clear();
+    localStorage.setItem('ct-storage-cleared-v1.10.0', 'true');
+    console.log('[Throxy] localStorage cleared for v1.9.12');
+  }
 
   // ================================================================
   // MORNING SCHEDULE (dark blocks on timetable)
@@ -81,15 +87,12 @@
   const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
   const CHECK_INTERVAL_MS = 5000;
   const MIC_CHECK_INTERVAL_MS = 15000;
-  const LINKEDIN_POLL_MS = 3000;
+  const TALKTRACK_POLL_MS = 3000;
   const CONFIG_URL = 'https://throxy-extension.throxy.ai/config.json';
   const CONFIG_FETCH_INTERVAL_MS = 2 * 60 * 1000;
   const IS_TOP_FRAME = window.self === window.top;
   const BATCH_STORAGE_KEY = 'ct-batch-selection';
-  const LINKEDIN_PANEL_KEY = 'ct-linkedin-panel';
-  const LINKEDIN_USER_KEY = 'ct-linkedin-user-email';
-  const ONEPAGER_PANEL_KEY = 'ct-onepager-panel';
-  const ONEPAGER_BASE_URL = 'https://leadflow.throxy.com/one-pager/';
+  const TALKTRACK_BASE_URL = 'https://throxy-extension.throxy.ai/talk-tracks/';
   const CAMPAIGN_CACHE_KEY = 'ct-campaign-contacts-cache';
   const CAMPAIGN_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
   const CAMPAIGNS_API_BASE = 'https://campaigns.cloudtalk.io/api/v1/campaigns';
@@ -108,20 +111,15 @@
   let breakWarningDismissed = false; // reset when break period changes
   let lastBreakKey = null; // tracks which break period was dismissed
   let micWarningDismissed = false; // user closed the mic warning
-  let currentLinkedInUrl = null; // tracks current prospect's LinkedIn URL
-  let linkedInWhitelist = null; // null = config not fetched yet; string[] = whitelist loaded
-  let onePagerWhitelist = null; // null = config not fetched yet; string[] = whitelist loaded
-  let onePagerMap = null; // null = config not fetched; { clientName: sheetUUID }
-  let currentOnePagerId = null; // tracks current one-pager sheet UUID
+  let talkTrackMap = null; // null = config not fetched; { clientName: mdFilename }
+  let currentTalkTrackKey = null; // tracks current talk track client key
+  let talkTrackCache = {}; // { filename: renderedHTML }
 
   function log(...args) {
     console.log('[Throxy Extension]', ...args);
   }
 
   if (IS_TOP_FRAME) {
-    const linkedInStatus = isLinkedInPanelEnabled()
-      ? 'ON'
-      : 'OFF (Ctrl+Shift+L to enable)';
     console.log('===========================================');
     console.log('[Throxy Extension] EXTENSION LOADED!');
     console.log('[Throxy Extension] Shortcuts:');
@@ -129,10 +127,9 @@
     console.log('  1-9          = Disposition 1-9');
     console.log('  Q/W/E        = Disposition 10/11/12');
     console.log('  +            = Next Call');
-    console.log('  Ctrl+Shift+L = Toggle LinkedIn panel');
     console.log('[Throxy Extension] Schedule warnings: ACTIVE');
     console.log('[Throxy Extension] Headset mic warning: ACTIVE');
-    console.log('[Throxy Extension] LinkedIn panel:', linkedInStatus);
+    console.log('[Throxy Extension] TalkTrack panel: ACTIVE');
     console.log('===========================================');
   }
 
@@ -525,12 +522,12 @@
       }
       .ct-disposition-selected { border: 2px solid #00ff00 !important; box-shadow: 0 0 10px #00ff00 !important; }
 
-      /* Hide activity content when LinkedIn panel replaces it */
-      app-session-activity[data-ct-linkedin-active] > *:not(#ct-linkedin-card) {
+      /* Hide activity content when TalkTrack panel replaces it */
+      app-session-activity[data-ct-talktrack-active] > *:not(#ct-talktrack-card) {
         display: none !important;
       }
 
-      /* === Compact layout: shrink left panels when LinkedIn is active === */
+      /* === Compact layout: shrink left panels when TalkTrack is active === */
       [data-ct-compact="0"] {
         max-width: 170px !important;
         flex: 0 0 170px !important;
@@ -545,55 +542,75 @@
         overflow-y: auto !important;
         overflow-x: hidden !important;
       }
-      app-session-activity[data-ct-linkedin-active] {
+      app-session-activity[data-ct-talktrack-active] {
         flex: 1 1 auto !important;
         min-width: 0 !important;
       }
 
-      /* === LinkedIn Inline Panel (inside activity column) === */
-      #ct-linkedin-card {
+      /* === TalkTrack Panel (inside activity column) === */
+      #ct-talktrack-card {
         display: flex !important; flex-direction: column;
         height: 100%; overflow: hidden;
       }
-      #ct-linkedin-card .ct-li-header {
+      #ct-talktrack-card .ct-tt-header {
         display: flex; align-items: center; gap: 8px;
-        padding: 8px 14px; background: #0a66c2; color: #fff;
+        padding: 8px 14px; background: #0f172a; color: #fff;
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
         font-size: 12px; font-weight: 600; flex-shrink: 0;
         letter-spacing: 0.3px;
       }
-      #ct-linkedin-card .ct-li-header svg { flex-shrink: 0; }
-      #ct-linkedin-card .ct-li-url {
+      #ct-talktrack-card .ct-tt-header svg { flex-shrink: 0; }
+      #ct-talktrack-card .ct-tt-client {
         flex: 1; overflow: hidden; text-overflow: ellipsis;
         white-space: nowrap; opacity: 0.85; font-weight: 400;
         font-size: 11px;
       }
-      #ct-linkedin-card .ct-li-iframe {
-        flex: 1; width: 100%; border: none; background: #f8fafc;
+      #ct-talktrack-card .ct-tt-body {
+        flex: 1; overflow-y: auto; padding: 16px 20px;
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        font-size: 13px; line-height: 1.6; color: #1e293b;
+        background: #ffffff;
       }
-      #ct-linkedin-card .ct-li-empty {
+      #ct-talktrack-card .ct-tt-body h1 {
+        font-size: 16px; font-weight: 700; margin: 0 0 4px; color: #0f172a;
+      }
+      #ct-talktrack-card .ct-tt-body h2 {
+        font-size: 14px; font-weight: 700; margin: 20px 0 8px; color: #0f172a;
+        border-bottom: 1px solid #e2e8f0; padding-bottom: 4px;
+      }
+      #ct-talktrack-card .ct-tt-body h3 {
+        font-size: 13px; font-weight: 600; margin: 14px 0 6px; color: #334155;
+      }
+      #ct-talktrack-card .ct-tt-body p { margin: 6px 0; }
+      #ct-talktrack-card .ct-tt-body ul {
+        margin: 6px 0; padding-left: 18px;
+      }
+      #ct-talktrack-card .ct-tt-body li { margin: 3px 0; }
+      #ct-talktrack-card .ct-tt-body hr {
+        border: none; border-top: 1px solid #e2e8f0; margin: 16px 0;
+      }
+      #ct-talktrack-card .ct-tt-body blockquote {
+        margin: 8px 0; padding: 8px 12px;
+        border-left: 3px solid #cbd5e1; color: #475569;
+        background: #f8fafc; font-size: 12px;
+      }
+      #ct-talktrack-card .ct-tt-body strong { font-weight: 600; }
+      #ct-talktrack-card .ct-tt-body em { font-style: italic; }
+      #ct-talktrack-card .ct-tt-empty {
         flex: 1; display: flex; align-items: center; justify-content: center;
         flex-direction: column; gap: 12px; padding: 32px;
         color: #94a3b8; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
         font-size: 13px; text-align: center;
       }
-      #ct-linkedin-card .ct-li-empty svg { opacity: 0.4; }
-      #ct-linkedin-card .ct-li-waiting {
-        flex: 1; display: flex; align-items: center; justify-content: center;
-        flex-direction: column; gap: 12px; padding: 32px;
-        color: #94a3b8; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-        font-size: 13px; text-align: center;
-      }
-      #ct-linkedin-card .ct-li-waiting svg { opacity: 0.4; }
-      #ct-linkedin-card .ct-li-loading {
+      #ct-talktrack-card .ct-tt-loading {
         flex: 1; display: flex; align-items: center; justify-content: center;
       }
-      #ct-linkedin-card .ct-li-spinner {
+      #ct-talktrack-card .ct-tt-spinner {
         width: 24px; height: 24px; border: 3px solid #e2e8f0;
-        border-top-color: #0a66c2; border-radius: 50%;
-        animation: ct-li-spin 0.8s linear infinite;
+        border-top-color: #0f172a; border-radius: 50%;
+        animation: ct-tt-spin 0.8s linear infinite;
       }
-      @keyframes ct-li-spin { to { transform: rotate(360deg); } }
+      @keyframes ct-tt-spin { to { transform: rotate(360deg); } }
 
       /* === Status Banner (centered pill, doesn't cover header) === */
       #ct-time-status {
@@ -923,7 +940,7 @@
     const activityHost = document.querySelector('app-session-activity');
     if (activityHost) {
       const children = activityHost.querySelectorAll(
-        ':scope > *:not(#ct-linkedin-card)'
+        ':scope > *:not(#ct-talktrack-card)'
       );
       children.forEach((el) => el.remove());
     }
@@ -946,209 +963,241 @@
   }
 
   // ================================================================
-  // LINKEDIN PROSPECT PANEL (A/B test — opt-in via Ctrl+Shift+L)
+  // TALKTRACK PANEL
   // ================================================================
-
-  function isLinkedInPanelEnabled() {
-    return localStorage.getItem(LINKEDIN_PANEL_KEY) === 'enabled';
-  }
-
-  function toggleLinkedInPanel() {
-    if (linkedInWhitelist !== null) {
-      let email = detectAgentEmail();
-      if (!email) {
-        const input = prompt('Enter your Throxy email to verify access:');
-        if (!input) return;
-        email = input.toLowerCase().trim();
-        localStorage.setItem(LINKEDIN_USER_KEY, email);
-      }
-      const whitelisted = isUserWhitelisted();
-      if (whitelisted === false) {
-        showNotification(
-          'LinkedIn preview is not enabled for your account',
-          'error'
-        );
-        return;
-      }
-    }
-
-    const wasEnabled = isLinkedInPanelEnabled();
-    if (wasEnabled) {
-      localStorage.removeItem(LINKEDIN_PANEL_KEY);
-      removeLinkedInPanel();
-      showNotification('LinkedIn panel disabled', 'success');
-    } else {
-      localStorage.setItem(LINKEDIN_PANEL_KEY, 'enabled');
-      showNotification(
-        'LinkedIn panel enabled — searching for profile...',
-        'success'
-      );
-      tryShowLinkedInPanel();
-      startLinkedInPolling();
-    }
-    log('LinkedIn panel:', wasEnabled ? 'DISABLED' : 'ENABLED');
-  }
-
-  function findLinkedInUrl() {
-    const linkedInPattern =
-      /https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w%-]+\/?/i;
-
-    const links = document.querySelectorAll('a[href*="linkedin.com"]');
-    for (const link of links) {
-      if (linkedInPattern.test(link.href)) return link.href;
-    }
-
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      null,
-      false
-    );
-    while (walker.nextNode()) {
-      const text = walker.currentNode.textContent;
-      if (!text.includes('linkedin')) continue;
-      const match = text.match(linkedInPattern);
-      if (match) return match[0];
-    }
-
-    const inputs = document.querySelectorAll(
-      'input[value*="linkedin"], [data-value*="linkedin"]'
-    );
-    for (const input of inputs) {
-      const val = input.value || input.getAttribute('data-value') || '';
-      const match = val.match(linkedInPattern);
-      if (match) return match[0];
-    }
-
-    return null;
-  }
-
-  let linkedInIframeLoaded = false;
-
-  function tryShowLinkedInPanel() {
-    if (!isLinkedInPanelEnabled() || !IS_TOP_FRAME) return;
-
-    const url = findLinkedInUrl();
-    const normalizedUrl = url ? url.replace(/\/$/, '') : null;
-
-    if (normalizedUrl !== currentLinkedInUrl) {
-      currentLinkedInUrl = normalizedUrl;
-      linkedInIframeLoaded = false;
-      replaceCardContent(normalizedUrl, false);
-    }
-
-    ensureCardExists();
-
-    if (normalizedUrl && !linkedInIframeLoaded && isCallConnected()) {
-      linkedInIframeLoaded = true;
-      loadLinkedInIframe(normalizedUrl);
-    }
-  }
-
-  function ensureCardExists() {
-    if (document.getElementById('ct-linkedin-card')) return;
-    linkedInIframeLoaded = false;
-    replaceCardContent(currentLinkedInUrl, false);
-  }
 
   function getActivityContainer() {
     return document.querySelector('app-session-activity');
   }
 
-  const LI_SVG_16 =
-    '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>';
-  const LI_SVG_32 = LI_SVG_16.replace(
+  const TT_SVG_16 =
+    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
+  const TT_SVG_32 = TT_SVG_16.replace(
     'width="16" height="16"',
     'width="32" height="32"'
   );
 
-  function replaceCardContent(url, withIframe) {
-    const oldCard = document.getElementById('ct-linkedin-card');
+  function detectClientName() {
+    if (!talkTrackMap) return null;
+    const clientKeys = Object.keys(talkTrackMap);
+    if (clientKeys.length === 0) return null;
+
+    const pageText = document.body.innerText || '';
+    const pageTextLower = pageText.toLowerCase();
+
+    // Sort by length descending so longer keys match before shorter ones
+    const sorted = clientKeys.slice().sort((a, b) => b.length - a.length);
+    for (const key of sorted) {
+      if (pageTextLower.includes(key)) {
+        return key;
+      }
+    }
+    return null;
+  }
+
+  function parseTalkTrackMarkdown(md) {
+    // Strip custom color tags: {#rrggbb}text{/} → <span style="color:...">text</span>
+    let html = md.replace(
+      /\{(#[0-9a-fA-F]{6})\}([\s\S]*?)\{\/\}/g,
+      '<span style="color:$1">$2</span>'
+    );
+
+    const lines = html.split('\n');
+    const out = [];
+    let inList = false;
+    let inBlockquote = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+
+      // Horizontal rule
+      if (/^---+\s*$/.test(line)) {
+        if (inList) { out.push('</ul>'); inList = false; }
+        if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        out.push('<hr>');
+        continue;
+      }
+
+      // Headers
+      if (/^### (.+)/.test(line)) {
+        if (inList) { out.push('</ul>'); inList = false; }
+        if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        out.push('<h3>' + inlineFormat(line.replace(/^### /, '')) + '</h3>');
+        continue;
+      }
+      if (/^## (.+)/.test(line)) {
+        if (inList) { out.push('</ul>'); inList = false; }
+        if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        out.push('<h2>' + inlineFormat(line.replace(/^## /, '')) + '</h2>');
+        continue;
+      }
+      if (/^# (.+)/.test(line)) {
+        if (inList) { out.push('</ul>'); inList = false; }
+        if (inBlockquote) { out.push('</blockquote>'); inBlockquote = false; }
+        out.push('<h1>' + inlineFormat(line.replace(/^# /, '')) + '</h1>');
+        continue;
+      }
+
+      // Blockquote
+      if (/^>\s?(.*)/.test(line)) {
+        if (inList) { out.push('</ul>'); inList = false; }
+        if (!inBlockquote) { out.push('<blockquote>'); inBlockquote = true; }
+        out.push(inlineFormat(line.replace(/^>\s?/, '')) + '<br>');
+        continue;
+      } else if (inBlockquote) {
+        out.push('</blockquote>');
+        inBlockquote = false;
+      }
+
+      // List items (-, •, *)
+      if (/^[\-\u2022\*]\s+(.+)/.test(line)) {
+        if (!inList) { out.push('<ul>'); inList = true; }
+        out.push('<li>' + inlineFormat(line.replace(/^[\-\u2022\*]\s+/, '')) + '</li>');
+        continue;
+      } else if (inList && line.trim() === '') {
+        out.push('</ul>');
+        inList = false;
+      }
+
+      // Empty line
+      if (line.trim() === '') {
+        continue;
+      }
+
+      // Regular paragraph
+      out.push('<p>' + inlineFormat(line) + '</p>');
+    }
+
+    if (inList) out.push('</ul>');
+    if (inBlockquote) out.push('</blockquote>');
+
+    return out.join('\n');
+  }
+
+  function inlineFormat(text) {
+    // Bold: **text**
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Italic: *text* (but not inside <span> color tags already processed)
+    text = text.replace(/(?<!\w)\*([^*]+?)\*(?!\w)/g, '<em>$1</em>');
+    return text;
+  }
+
+  async function fetchTalkTrack(filename) {
+    if (talkTrackCache[filename]) return talkTrackCache[filename];
+    try {
+      const url = TALKTRACK_BASE_URL + filename + '.md?_=' + Date.now();
+      const resp = await fetch(url, { cache: 'no-store' });
+      if (!resp.ok) return null;
+      const md = await resp.text();
+      const html = parseTalkTrackMarkdown(md);
+      talkTrackCache[filename] = html;
+      return html;
+    } catch (e) {
+      log('TalkTrack fetch failed:', filename, e.message);
+      return null;
+    }
+  }
+
+  function tryShowTalkTrackPanel() {
+    if (!IS_TOP_FRAME || !talkTrackMap) return;
+
+    const clientKey = detectClientName();
+    const filename = clientKey ? talkTrackMap[clientKey] : null;
+
+    if (clientKey === currentTalkTrackKey) {
+      ensureTalkTrackCardExists();
+      return;
+    }
+
+    currentTalkTrackKey = clientKey;
+    replaceTalkTrackCardContent(filename, clientKey);
+  }
+
+  function ensureTalkTrackCardExists() {
+    if (document.getElementById('ct-talktrack-card')) return;
+    const filename = currentTalkTrackKey ? talkTrackMap[currentTalkTrackKey] : null;
+    replaceTalkTrackCardContent(filename, currentTalkTrackKey);
+  }
+
+  function replaceTalkTrackCardContent(filename, clientKey) {
+    const oldCard = document.getElementById('ct-talktrack-card');
     if (oldCard) oldCard.remove();
 
     const container = getActivityContainer();
     if (!container) return;
 
-    container.setAttribute('data-ct-linkedin-active', '');
+    container.setAttribute('data-ct-talktrack-active', '');
 
     const card = document.createElement('div');
-    card.id = 'ct-linkedin-card';
+    card.id = 'ct-talktrack-card';
 
-    if (url) {
-      const slug = url.split('/in/')[1]?.replace(/\/$/, '') || '';
+    if (filename) {
+      const displayName = clientKey
+        ? clientKey
+            .split(' ')
+            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' ')
+        : 'Talk Track';
       card.innerHTML = `
-        <div class="ct-li-header">
-          ${LI_SVG_16}
-          <span>LinkedIn</span>
-          <span class="ct-li-url">${slug}</span>
+        <div class="ct-tt-header">
+          ${TT_SVG_16}
+          <span>Talk Track</span>
+          <span class="ct-tt-client">${displayName}</span>
         </div>
-        <div class="ct-li-waiting" id="ct-li-waiting">
-          ${LI_SVG_32}
-          <div>Waiting for call to connect\u2026<br>
-          <span style="font-size:11px;opacity:0.7">LinkedIn profile will load once the prospect picks up.</span></div>
+        <div class="ct-tt-loading">
+          <div class="ct-tt-spinner"></div>
         </div>
       `;
 
-      if (withIframe) {
-        loadLinkedInIframe(url);
-      }
+      container.appendChild(card);
+      optimizeLayout(true);
+
+      // Fetch and render markdown
+      fetchTalkTrack(filename).then((html) => {
+        const currentCard = document.getElementById('ct-talktrack-card');
+        if (!currentCard) return;
+        const loader = currentCard.querySelector('.ct-tt-loading');
+        if (html) {
+          const body = document.createElement('div');
+          body.className = 'ct-tt-body';
+          body.innerHTML = html;
+          if (loader) loader.remove();
+          currentCard.appendChild(body);
+          log('TalkTrack loaded:', filename);
+        } else {
+          if (loader) {
+            loader.className = 'ct-tt-empty';
+            loader.innerHTML = `${TT_SVG_32}<div>Failed to load talk track.<br>Check your connection and try again.</div>`;
+          }
+        }
+      });
     } else {
       card.innerHTML = `
-        <div class="ct-li-header">
-          ${LI_SVG_16}
-          <span>LinkedIn</span>
+        <div class="ct-tt-header">
+          ${TT_SVG_16}
+          <span>Talk Track</span>
         </div>
-        <div class="ct-li-empty">
-          ${LI_SVG_32}
-          <div>No LinkedIn URL found for this prospect.<br>
-          The URL will appear automatically when detected.</div>
+        <div class="ct-tt-empty">
+          ${TT_SVG_32}
+          <div>No talk track found for this campaign.<br>
+          The talk track will appear automatically when a matching client is detected.</div>
         </div>
       `;
+      container.appendChild(card);
+      optimizeLayout(true);
     }
-
-    container.appendChild(card);
-    optimizeLayoutForLinkedIn(true);
   }
 
-  function loadLinkedInIframe(url) {
-    const card = document.getElementById('ct-linkedin-card');
-    if (!card) return;
-
-    const waiting = card.querySelector('#ct-li-waiting');
-    if (waiting) {
-      waiting.innerHTML = '<div class="ct-li-spinner"></div>';
-      waiting.className = 'ct-li-loading';
-    }
-
-    const iframe = document.createElement('iframe');
-    iframe.className = 'ct-li-iframe';
-    iframe.sandbox = 'allow-scripts allow-same-origin';
-    iframe.loading = 'lazy';
-    iframe.src = url;
-    iframe.onload = () => {
-      const loader = card.querySelector('.ct-li-loading');
-      if (loader) loader.remove();
-    };
-    setTimeout(() => {
-      const loader = card.querySelector('.ct-li-loading');
-      if (loader) loader.remove();
-    }, 10000);
-
-    card.appendChild(iframe);
-    log('LinkedIn iframe loaded (call connected):', url);
-  }
-
-  function removeLinkedInPanel() {
-    const card = document.getElementById('ct-linkedin-card');
+  function removeTalkTrackPanel() {
+    const card = document.getElementById('ct-talktrack-card');
     if (card) card.remove();
     const container = getActivityContainer();
-    if (container) container.removeAttribute('data-ct-linkedin-active');
-    currentLinkedInUrl = null;
-    linkedInIframeLoaded = false;
-    optimizeLayoutForLinkedIn(false);
+    if (container) container.removeAttribute('data-ct-talktrack-active');
+    currentTalkTrackKey = null;
+    optimizeLayout(false);
   }
 
-  function optimizeLayoutForLinkedIn(enable) {
+  function optimizeLayout(enable) {
     const activity = document.querySelector('app-session-activity');
     if (!activity) return;
     const parent = activity.parentElement;
@@ -1164,141 +1213,14 @@
     }
   }
 
-  // ================================================================
-  // ONE-PAGER PROSPECT PANEL (A/B test — shows LeadFlow one-pager)
-  // ================================================================
-
-  function isOnePagerPanelEnabled() {
-    return localStorage.getItem(ONEPAGER_PANEL_KEY) === 'enabled';
-  }
-
-  function detectClientName() {
-    if (!onePagerMap) return null;
-    const clientKeys = Object.keys(onePagerMap);
-    if (clientKeys.length === 0) return null;
-
-    const pageText = document.body.innerText || '';
-    const pageTextLower = pageText.toLowerCase();
-
-    // Sort by length descending so "blendhub - dairy" matches before "blendhub"
-    const sorted = clientKeys.slice().sort((a, b) => b.length - a.length);
-    for (const key of sorted) {
-      if (pageTextLower.includes(key)) {
-        return key;
-      }
-    }
-    return null;
-  }
-
-  function tryShowOnePagerPanel() {
-    if (!isOnePagerPanelEnabled() || !IS_TOP_FRAME || !onePagerMap) return;
-
-    const clientKey = detectClientName();
-    const sheetId = clientKey ? onePagerMap[clientKey] : null;
-
-    if (sheetId === currentOnePagerId) {
-      ensureOnePagerCardExists();
-      return;
-    }
-
-    currentOnePagerId = sheetId;
-    replaceOnePagerCardContent(sheetId, clientKey);
-  }
-
-  function ensureOnePagerCardExists() {
-    if (document.getElementById('ct-onepager-card')) return;
-    replaceOnePagerCardContent(currentOnePagerId, null);
-  }
-
-  const OP_SVG_16 =
-    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>';
-  const OP_SVG_32 = OP_SVG_16.replace(
-    'width="16" height="16"',
-    'width="32" height="32"'
-  );
-
-  function replaceOnePagerCardContent(sheetId, clientKey) {
-    const oldCard = document.getElementById('ct-onepager-card');
-    if (oldCard) oldCard.remove();
-
-    const container = getActivityContainer();
-    if (!container) return;
-
-    container.setAttribute('data-ct-linkedin-active', '');
-
-    const card = document.createElement('div');
-    card.id = 'ct-onepager-card';
-    card.style.cssText =
-      'display:flex!important;flex-direction:column;height:100%;overflow:hidden;';
-
-    if (sheetId) {
-      const displayName = clientKey
-        ? clientKey
-            .split(' ')
-            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-            .join(' ')
-        : 'One-Pager';
-      card.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#7c3aed;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:12px;font-weight:600;flex-shrink:0;letter-spacing:0.3px;">
-          ${OP_SVG_16}
-          <span>One-Pager</span>
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.85;font-weight:400;font-size:11px;">${displayName}</span>
-        </div>
-        <div class="ct-li-loading">
-          <div class="ct-li-spinner" style="border-top-color:#7c3aed!important;"></div>
-        </div>
-      `;
-
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText =
-        'flex:1;width:100%;border:none;background:#f8fafc;';
-      iframe.loading = 'lazy';
-      iframe.src = ONEPAGER_BASE_URL + sheetId;
-      iframe.onload = () => {
-        const loader = card.querySelector('.ct-li-loading');
-        if (loader) loader.remove();
-      };
-      setTimeout(() => {
-        const loader = card.querySelector('.ct-li-loading');
-        if (loader) loader.remove();
-      }, 10000);
-
-      card.appendChild(iframe);
-    } else {
-      card.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#7c3aed;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:12px;font-weight:600;flex-shrink:0;letter-spacing:0.3px;">
-          ${OP_SVG_16}
-          <span>One-Pager</span>
-        </div>
-        <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:32px;color:#94a3b8;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;font-size:13px;text-align:center;">
-          ${OP_SVG_32}
-          <div>No one-pager found for this campaign.<br>
-          The one-pager will appear automatically when a matching client is detected.</div>
-        </div>
-      `;
-    }
-
-    container.appendChild(card);
-    optimizeLayoutForLinkedIn(true);
-  }
-
-  function removeOnePagerPanel() {
-    const card = document.getElementById('ct-onepager-card');
-    if (card) card.remove();
-    const container = getActivityContainer();
-    if (container) container.removeAttribute('data-ct-linkedin-active');
-    currentOnePagerId = null;
-    optimizeLayoutForLinkedIn(false);
-  }
-
-  function startOnePagerPolling() {
-    if (window._ctOnePagerPollActive) return;
-    window._ctOnePagerPollActive = true;
-    setInterval(tryShowOnePagerPanel, LINKEDIN_POLL_MS);
+  function startTalkTrackPolling() {
+    if (window._ctTalkTrackPollActive) return;
+    window._ctTalkTrackPollActive = true;
+    setInterval(tryShowTalkTrackPanel, TALKTRACK_POLL_MS);
   }
 
   // ================================================================
-  // A/B CONFIG (remote whitelist for LinkedIn + One-Pager)
+  // CONFIG (remote talk track mapping)
   // ================================================================
 
   async function fetchRemoteConfig() {
@@ -1309,13 +1231,7 @@
       });
       if (!resp.ok) return;
       const config = await resp.json();
-      linkedInWhitelist = (config.linkedinUsers || []).map((u) =>
-        u.toLowerCase().trim()
-      );
-      onePagerWhitelist = (config.onePagerUsers || []).map((u) =>
-        u.toLowerCase().trim()
-      );
-      onePagerMap = config.onePagerMap || {};
+      talkTrackMap = config.talkTrackMap || {};
 
       // Remote cache clear: bump clearCacheVersion in config.json to wipe all SDR caches
       const remoteCacheVer = config.clearCacheVersion || 0;
@@ -1327,184 +1243,23 @@
         log('Remote cache clear: v' + localCacheVer + ' → v' + remoteCacheVer);
         localStorage.removeItem(CAMPAIGN_CACHE_KEY);
         localStorage.removeItem(BATCH_STORAGE_KEY);
+        // Clear talk track cache so fresh content is fetched
+        talkTrackCache = {};
         localStorage.setItem('ct-clear-cache-version', String(remoteCacheVer));
       }
 
       log(
-        'Config loaded: LinkedIn whitelist:',
-        linkedInWhitelist.length,
-        '| One-pager whitelist:',
-        onePagerWhitelist.length,
-        '| Client map:',
-        Object.keys(onePagerMap).length
+        'Config loaded: TalkTrack map:',
+        Object.keys(talkTrackMap).length,
+        'clients'
       );
-      applyPanelAccess();
+
+      // Start polling and show panel immediately
+      tryShowTalkTrackPanel();
+      startTalkTrackPolling();
     } catch (e) {
       log('Config fetch failed:', e.message);
     }
-  }
-
-  function getStoredAgentEmail() {
-    return localStorage.getItem(LINKEDIN_USER_KEY);
-  }
-
-  function detectAgentEmail() {
-    const stored = getStoredAgentEmail();
-    if (stored) return stored;
-
-    // Search ALL localStorage and sessionStorage for @throxy.com emails
-    const storages = [localStorage, sessionStorage];
-    for (const storage of storages) {
-      try {
-        for (let i = 0; i < storage.length; i++) {
-          const key = storage.key(i);
-          const val = storage.getItem(key);
-          if (!val || val.length > 200000) continue;
-
-          // Check JWTs
-          if (val.includes('.') && val.split('.').length === 3) {
-            try {
-              const payload = JSON.parse(atob(val.split('.')[1]));
-              const email = payload.email || payload.sub || payload.user_email;
-              if (email && email.includes('@')) return email.toLowerCase();
-            } catch (_) {}
-          }
-
-          // Check JSON objects (deep: up to 2 levels)
-          if (val.startsWith('{') || val.startsWith('[')) {
-            try {
-              const obj = JSON.parse(val);
-              const found = findEmailInObj(obj, 2);
-              if (found) return found;
-            } catch (_) {}
-          }
-
-          // Check raw string for @throxy.com
-          if (val.includes('@throxy.com')) {
-            const m = val.match(/[\w.+-]+@throxy\.com/i);
-            if (m) return m[0].toLowerCase();
-          }
-        }
-      } catch (_) {}
-    }
-    return null;
-  }
-
-  function findEmailInObj(obj, depth) {
-    if (depth <= 0 || !obj || typeof obj !== 'object') return null;
-    const vals = Array.isArray(obj) ? obj : Object.values(obj);
-    for (const v of vals) {
-      if (typeof v === 'string' && v.includes('@')) {
-        const m = v.match(/[\w.+-]+@[\w.-]+\.\w{2,}/);
-        if (m) return m[0].toLowerCase();
-      }
-      if (typeof v === 'object' && v) {
-        const found = findEmailInObj(v, depth - 1);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
-
-  function isEmailInList(list) {
-    if (!list) return null;
-    if (list.length === 0) return false;
-    const email = detectAgentEmail();
-    if (!email) return null;
-    return list.some(
-      (u) => email === u || email.includes(u) || u.includes(email)
-    );
-  }
-
-  function isUserWhitelisted() {
-    return isEmailInList(linkedInWhitelist);
-  }
-
-  let emailPromptShown = false;
-
-  function applyPanelAccess() {
-    let email = detectAgentEmail();
-
-    // If email not found, prompt once per session
-    if (!email && !emailPromptShown && IS_TOP_FRAME) {
-      emailPromptShown = true;
-      const input = prompt(
-        '[Throxy Extension] Enter your Throxy email to enable the side panel:'
-      );
-      if (input && input.includes('@')) {
-        email = input.toLowerCase().trim();
-        localStorage.setItem(LINKEDIN_USER_KEY, email);
-        log('Email stored:', email);
-      }
-    }
-
-    if (!email) {
-      log('Email not detected — panels cannot be assigned');
-      return;
-    }
-
-    const inOnePager =
-      onePagerWhitelist &&
-      onePagerWhitelist.some(
-        (u) => email === u || email.includes(u) || u.includes(email)
-      );
-    const inLinkedIn =
-      linkedInWhitelist &&
-      linkedInWhitelist.some(
-        (u) => email === u || email.includes(u) || u.includes(email)
-      );
-
-    // One-pager group: enable one-pager, disable LinkedIn
-    if (inOnePager) {
-      if (isLinkedInPanelEnabled()) {
-        localStorage.removeItem(LINKEDIN_PANEL_KEY);
-        removeLinkedInPanel();
-      }
-      if (!isOnePagerPanelEnabled()) {
-        localStorage.setItem(ONEPAGER_PANEL_KEY, 'enabled');
-        showNotification(
-          'One-pager preview enabled for your account',
-          'success'
-        );
-      }
-      tryShowOnePagerPanel();
-      startOnePagerPolling();
-      return;
-    }
-
-    // LinkedIn group: enable LinkedIn, disable one-pager
-    if (inLinkedIn) {
-      if (isOnePagerPanelEnabled()) {
-        localStorage.removeItem(ONEPAGER_PANEL_KEY);
-        removeOnePagerPanel();
-      }
-      if (!isLinkedInPanelEnabled()) {
-        localStorage.setItem(LINKEDIN_PANEL_KEY, 'enabled');
-        showNotification(
-          'LinkedIn preview enabled for your account',
-          'success'
-        );
-      }
-      tryShowLinkedInPanel();
-      startLinkedInPolling();
-      return;
-    }
-
-    // Not in either list: disable both
-    if (isLinkedInPanelEnabled()) {
-      localStorage.removeItem(LINKEDIN_PANEL_KEY);
-      removeLinkedInPanel();
-    }
-    if (isOnePagerPanelEnabled()) {
-      localStorage.removeItem(ONEPAGER_PANEL_KEY);
-      removeOnePagerPanel();
-    }
-  }
-
-  function startLinkedInPolling() {
-    if (window._ctLinkedInPollActive) return;
-    window._ctLinkedInPollActive = true;
-    setInterval(tryShowLinkedInPanel, LINKEDIN_POLL_MS);
   }
 
   function expandDispositionsOnce() {
@@ -1582,11 +1337,7 @@
     removeActivitySection();
     expandDispositionsOnce();
     setTimeout(addShortcutBadges, 150);
-    if (isOnePagerPanelEnabled()) {
-      tryShowOnePagerPanel();
-    } else if (isLinkedInPanelEnabled()) {
-      tryShowLinkedInPanel();
-    }
+    tryShowTalkTrackPanel();
   }
 
   // ================================================================
@@ -2476,16 +2227,6 @@
   // ================================================================
 
   function handleKeyDown(event) {
-    if (
-      (event.ctrlKey || event.metaKey) &&
-      event.shiftKey &&
-      event.key.toLowerCase() === 'l'
-    ) {
-      event.preventDefault();
-      toggleLinkedInPanel();
-      return;
-    }
-
     if (isTypingInInput(event)) return;
     if (event.ctrlKey || event.altKey || event.metaKey) return;
 
@@ -2570,13 +2311,8 @@
     checkCampaignListNavigation();
     setInterval(checkCampaignListNavigation, 3000);
 
-    if (isOnePagerPanelEnabled()) {
-      setTimeout(tryShowOnePagerPanel, 2000);
-      startOnePagerPolling();
-    } else if (isLinkedInPanelEnabled()) {
-      setTimeout(tryShowLinkedInPanel, 2000);
-      startLinkedInPolling();
-    }
+    // TalkTrack panel starts after config is fetched (in fetchRemoteConfig)
+    setTimeout(tryShowTalkTrackPanel, 2000);
 
     checkMicrophone();
     setInterval(checkMicrophone, MIC_CHECK_INTERVAL_MS);
@@ -2600,17 +2336,17 @@
   let observerTimeout = null;
   function isPanelMutation(m) {
     const t = m.target;
-    if (t.id === 'ct-linkedin-card' || t.id === 'ct-onepager-card') return true;
-    if (t.closest?.('#ct-linkedin-card') || t.closest?.('#ct-onepager-card'))
+    if (t.id === 'ct-talktrack-card' || t.id === 'ct-talktrack-card') return true;
+    if (t.closest?.('#ct-talktrack-card') || t.closest?.('#ct-talktrack-card'))
       return true;
     if (
       t.tagName === 'APP-SESSION-ACTIVITY' ||
       t.closest?.('app-session-activity')
     ) {
       const isOurNode = (n) =>
-        n?.id === 'ct-linkedin-card' ||
-        n?.id === 'ct-onepager-card' ||
-        (n?.nodeType === 1 && n?.hasAttribute?.('data-ct-linkedin-active'));
+        n?.id === 'ct-talktrack-card' ||
+        n?.id === 'ct-talktrack-card' ||
+        (n?.nodeType === 1 && n?.hasAttribute?.('data-ct-talktrack-active'));
       for (const n of m.addedNodes || []) {
         if (isOurNode(n)) return true;
       }
@@ -2643,10 +2379,5 @@
   });
 
   document.addEventListener('keydown', handleKeyDown, true);
-  const panelStatus = isOnePagerPanelEnabled()
-    ? 'One-Pager ON'
-    : isLinkedInPanelEnabled()
-    ? 'LinkedIn ON'
-    : 'panels OFF';
-  log('Extension ready (schedules + mic warning + ' + panelStatus + ')');
+  log('Extension ready (schedules + mic warning + TalkTrack panel)');
 })();
