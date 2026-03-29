@@ -1,5 +1,5 @@
 {
-  "clearCacheVersion": 2,
+  "clearCacheVersion": 3,
   "talkTrackMap": {
     "oleum": "oleum-ai",
     "oleum ai": "oleum-ai",
@@ -7,5 +7,23 @@
     "poka labs": "poka-labs",
     "poka": "poka-labs",
     "popp": "popp"
+  },
+  "talkTrackMeta": {
+    "oleum-ai": {
+      "website": "",
+      "booking_link": ""
+    },
+    "pockla": {
+      "website": "",
+      "booking_link": ""
+    },
+    "poka-labs": {
+      "website": "",
+      "booking_link": ""
+    },
+    "popp": {
+      "website": "",
+      "booking_link": ""
+    }
   }
 }
